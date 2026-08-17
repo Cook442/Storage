@@ -1,1 +1,195 @@
+-- REAL Craft Storage Server
+-- Computer #1
+-- Sophisticated Storage -> Wireless Dashboard
 
+local MODEM_SIDE = "front"
+local PROTOCOL = "realcraft_storage"
+local REFRESH_RATE = 2
+
+--------------------------------------------------
+-- OPEN WIRELESS MODEM
+--------------------------------------------------
+
+if not rednet.isOpen(MODEM_SIDE) then
+    rednet.open(MODEM_SIDE)
+end
+
+--------------------------------------------------
+-- FIND SOPHISTICATED STORAGE I/O
+--------------------------------------------------
+
+local storage = nil
+local storageName = nil
+
+for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.hasType(name, "inventory") then
+        storage = peripheral.wrap(name)
+        storageName = name
+        break
+    end
+end
+
+if not storage then
+    error("No inventory found! Check Storage I/O connection.")
+end
+
+print("REAL Craft Storage Server")
+print("--------------------------")
+print("Storage:")
+print(storageName)
+print("")
+print("Wireless modem: " .. MODEM_SIDE)
+print("Protocol: " .. PROTOCOL)
+print("")
+print("Broadcasting storage data...")
+
+--------------------------------------------------
+-- HELPERS
+--------------------------------------------------
+
+local previousItems = nil
+local previousTime = os.epoch("utc")
+
+local function getTopItems(items)
+    local sorted = {}
+
+    for name, count in pairs(items) do
+        table.insert(sorted, {
+            name = name,
+            count = count
+        })
+    end
+
+    table.sort(sorted, function(a, b)
+        return a.count > b.count
+    end)
+
+    local result = {}
+
+    for i = 1, math.min(10, #sorted) do
+        result[i] = sorted[i]
+    end
+
+    return result
+end
+
+--------------------------------------------------
+-- SCAN STORAGE
+--------------------------------------------------
+
+local function scanStorage()
+
+    local data = {
+        usedSlots = 0,
+        totalSlots = 0,
+        totalItems = 0,
+        itemTypes = 0,
+        inventories = 1,
+        itemsPerMinute = 0,
+        topItems = {}
+    }
+
+    ----------------------------------------------
+    -- INVENTORY SIZE
+    ----------------------------------------------
+
+    local okSize, size = pcall(function()
+        return storage.size()
+    end)
+
+    if okSize and size then
+        data.totalSlots = size
+    end
+
+    ----------------------------------------------
+    -- INVENTORY CONTENTS
+    ----------------------------------------------
+
+    local okList, inventory = pcall(function()
+        return storage.list()
+    end)
+
+    if not okList then
+        print("ERROR: Could not read Storage I/O")
+        return data
+    end
+
+    local itemTotals = {}
+
+    for slot, item in pairs(inventory) do
+
+        data.usedSlots = data.usedSlots + 1
+        data.totalItems = data.totalItems + item.count
+
+        if itemTotals[item.name] == nil then
+            itemTotals[item.name] = 0
+            data.itemTypes = data.itemTypes + 1
+        end
+
+        itemTotals[item.name] =
+            itemTotals[item.name] + item.count
+    end
+
+    ----------------------------------------------
+    -- ITEMS PER MINUTE
+    ----------------------------------------------
+
+    local currentTime = os.epoch("utc")
+
+    if previousItems ~= nil then
+
+        local elapsed =
+            (currentTime - previousTime) / 60000
+
+        if elapsed > 0 then
+
+            data.itemsPerMinute =
+                math.floor(
+                    (data.totalItems - previousItems)
+                    / elapsed
+                )
+
+        end
+
+    end
+
+    previousItems = data.totalItems
+    previousTime = currentTime
+
+    ----------------------------------------------
+    -- TOP ITEMS
+    ----------------------------------------------
+
+    data.topItems = getTopItems(itemTotals)
+
+    return data
+end
+
+--------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------
+
+while true do
+
+    local data = scanStorage()
+
+    rednet.broadcast(
+        data,
+        PROTOCOL
+    )
+
+    term.setCursorPos(1, 12)
+    term.clearLine()
+
+    print(
+        "Items: " ..
+        data.totalItems ..
+        " | Slots: " ..
+        data.usedSlots ..
+        "/" ..
+        data.totalSlots
+    )
+
+    sleep(REFRESH_RATE)
+
+end
