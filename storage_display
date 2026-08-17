@@ -1,7 +1,7 @@
 -- ============================================================
 -- COOK'S STORAGE - MASTER DISPLAY
 -- Computer #1
--- Automatically discovers unlimited storage nodes
+-- Unlimited wireless storage nodes
 -- ============================================================
 
 local PROTOCOL = "cooks_storage_v2"
@@ -70,15 +70,12 @@ local CATEGORY_ORDER = {
 --------------------------------------------------
 
 local function short(n)
-
     n = tonumber(n) or 0
 
     if math.abs(n) >= 1000000000 then
         return string.format("%.1fB", n / 1000000000)
-
     elseif math.abs(n) >= 1000000 then
         return string.format("%.1fM", n / 1000000)
-
     elseif math.abs(n) >= 1000 then
         return string.format("%.1fK", n / 1000)
     end
@@ -87,18 +84,13 @@ local function short(n)
 end
 
 local function comma(n)
-
     n = math.floor(tonumber(n) or 0)
 
     local text = tostring(n)
 
     while true do
-
         local new, changes =
-            text:gsub(
-                "^(-?%d+)(%d%d%d)",
-                "%1,%2"
-            )
+            text:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
 
         text = new
 
@@ -111,118 +103,62 @@ local function comma(n)
 end
 
 local function cleanName(name)
-
     name = tostring(name or "?")
-
-    name =
-        name:match(":(.+)$")
-        or name
-
-    name =
-        name:gsub("_", " ")
+    name = name:match(":(.+)$") or name
+    name = name:gsub("_", " ")
 
     return name
 end
 
 local function writeAt(x, y, text, fg, bg)
+    local w, h = monitor.getSize()
 
-    local w, h =
-        monitor.getSize()
-
-    if x < 1
-        or y < 1
-        or x > w
-        or y > h
-    then
+    if x < 1 or y < 1 or x > w or y > h then
         return
     end
 
     text = tostring(text)
 
     if #text > w - x + 1 then
-        text =
-            text:sub(
-                1,
-                w - x + 1
-            )
+        text = text:sub(1, w - x + 1)
     end
 
     monitor.setCursorPos(x, y)
-
-    monitor.setTextColor(
-        fg or colors.white
-    )
-
-    monitor.setBackgroundColor(
-        bg or colors.black
-    )
-
+    monitor.setTextColor(fg or colors.white)
+    monitor.setBackgroundColor(bg or colors.black)
     monitor.write(text)
 end
 
 local function fill(x, y, width, color)
+    local w = monitor.getSize()
 
-    local screenWidth =
-        monitor.getSize()
-
-    width =
-        math.min(
-            width,
-            screenWidth - x + 1
-        )
+    width = math.min(width, w - x + 1)
 
     if width <= 0 then
         return
     end
 
     monitor.setCursorPos(x, y)
-
     monitor.setBackgroundColor(color)
-
-    monitor.write(
-        string.rep(" ", width)
-    )
-
-    monitor.setBackgroundColor(
-        colors.black
-    )
+    monitor.write(string.rep(" ", width))
+    monitor.setBackgroundColor(colors.black)
 end
 
 local function bar(x, y, width, ratio, color)
+    ratio = math.max(0, math.min(1, ratio or 0))
 
-    ratio =
-        math.max(
-            0,
-            math.min(1, ratio or 0)
-        )
+    fill(x, y, width, colors.gray)
 
-    fill(
-        x,
-        y,
-        width,
-        colors.gray
-    )
-
-    local amount =
-        math.floor(
-            width * ratio
-        )
+    local amount = math.floor(width * ratio)
 
     if amount > 0 then
-        fill(
-            x,
-            y,
-            amount,
-            color
-        )
+        fill(x, y, amount, color)
     end
 end
 
 local function usageColor(ratio)
-
     if ratio >= 0.90 then
         return colors.red
-
     elseif ratio >= 0.75 then
         return colors.orange
     end
@@ -231,15 +167,28 @@ local function usageColor(ratio)
 end
 
 --------------------------------------------------
--- COMBINE ALL ONLINE NODES
+-- REMOVE DEAD NODES
+--------------------------------------------------
+
+local function removeExpiredNodes()
+    local now = os.epoch("utc")
+
+    for id, node in pairs(nodes) do
+        if now - node.lastSeen > NODE_TIMEOUT * 1000 then
+            nodes[id] = nil
+        end
+    end
+end
+
+--------------------------------------------------
+-- COMBINE ALL ACTIVE NODES
 --------------------------------------------------
 
 local function combine()
+    removeExpiredNodes()
 
     local result = {
-
         activeNodes = 0,
-
         inventories = 0,
 
         totalSlots = 0,
@@ -261,104 +210,95 @@ local function combine()
     end
 
     local combinedItems = {}
-
-    local now =
-        os.epoch("utc")
-
-    --------------------------------------------------
-    -- NODES
-    --------------------------------------------------
+    local uniqueItems = {}
 
     for id, node in pairs(nodes) do
+        local data = node.data
 
-        if
-            now - node.lastSeen
-            <= NODE_TIMEOUT * 1000
-        then
+        result.activeNodes =
+            result.activeNodes + 1
 
-            local data =
-                node.data
+        result.inventories =
+            result.inventories
+            + (data.inventories or 0)
 
-            result.activeNodes =
-                result.activeNodes + 1
+        result.totalSlots =
+            result.totalSlots
+            + (data.totalSlots or 0)
 
-            result.inventories =
-                result.inventories
-                + (data.inventories or 0)
+        result.usedSlots =
+            result.usedSlots
+            + (data.usedSlots or 0)
 
-            result.totalSlots =
-                result.totalSlots
-                + (data.totalSlots or 0)
+        result.totalItems =
+            result.totalItems
+            + (data.totalItems or 0)
 
-            result.usedSlots =
-                result.usedSlots
-                + (data.usedSlots or 0)
+        result.itemsPerMinute =
+            result.itemsPerMinute
+            + (data.itemsPerMinute or 0)
 
-            result.totalItems =
-                result.totalItems
-                + (data.totalItems or 0)
+        result.slotsPerMinute =
+            result.slotsPerMinute
+            + (data.slotsPerMinute or 0)
 
-            result.itemTypes =
-                result.itemTypes
-                + (data.itemTypes or 0)
-
-            result.itemsPerMinute =
-                result.itemsPerMinute
-                + (data.itemsPerMinute or 0)
-
-            result.slotsPerMinute =
-                result.slotsPerMinute
-                + (data.slotsPerMinute or 0)
-
-            for category, count
-                in pairs(data.categories or {})
-            do
-
-                result.categories[category] =
-                    (result.categories[category] or 0)
-                    + count
-            end
-
-            for _, item
-                in ipairs(data.topItems or {})
-            do
-
-                combinedItems[item.name] =
-                    (combinedItems[item.name] or 0)
-                    + item.count
-            end
-
-            table.insert(
-                result.nodes,
-                {
-                    id = id,
-                    name =
-                        data.nodeName
-                        or ("Storage #" .. id),
-
-                    inventories =
-                        data.inventories or 0,
-
-                    items =
-                        data.totalItems or 0,
-
-                    usedSlots =
-                        data.usedSlots or 0,
-
-                    totalSlots =
-                        data.totalSlots or 0
-                }
-            )
+        for category, count
+            in pairs(data.categories or {})
+        do
+            result.categories[category] =
+                (result.categories[category] or 0)
+                + count
         end
+
+        for _, item in ipairs(data.topItems or {}) do
+            combinedItems[item.name] =
+                (combinedItems[item.name] or 0)
+                + item.count
+
+            uniqueItems[item.name] = true
+        end
+
+        table.insert(
+            result.nodes,
+            {
+                id = id,
+
+                name =
+                    data.nodeName
+                    or ("Storage #" .. id),
+
+                inventories =
+                    data.inventories or 0,
+
+                items =
+                    data.totalItems or 0,
+
+                usedSlots =
+                    data.usedSlots or 0,
+
+                totalSlots =
+                    data.totalSlots or 0
+            }
+        )
     end
+
+    --------------------------------------------------
+    -- ITEM TYPES
+    --------------------------------------------------
+
+    local itemTypes = 0
+
+    for _ in pairs(uniqueItems) do
+        itemTypes = itemTypes + 1
+    end
+
+    result.itemTypes = itemTypes
 
     --------------------------------------------------
     -- TOP ITEMS
     --------------------------------------------------
 
-    for name, count
-        in pairs(combinedItems)
-    do
+    for name, count in pairs(combinedItems) do
         table.insert(
             result.topItems,
             {
@@ -380,7 +320,7 @@ local function combine()
     end
 
     --------------------------------------------------
-    -- SORT NODES BY NAME
+    -- SORT NODES
     --------------------------------------------------
 
     table.sort(
@@ -400,25 +340,15 @@ end
 --------------------------------------------------
 
 local function drawComposition(data, x, y, width)
-
     if data.totalItems <= 0 then
-        fill(
-            x,
-            y,
-            width,
-            colors.gray
-        )
-
+        fill(x, y, width, colors.gray)
         return
     end
 
     local currentX = x
     local remaining = width
 
-    for index, entry
-        in ipairs(CATEGORY_ORDER)
-    do
-
+    for index, entry in ipairs(CATEGORY_ORDER) do
         local name = entry[1]
         local color = entry[2]
 
@@ -428,11 +358,8 @@ local function drawComposition(data, x, y, width)
         local amount
 
         if index == #CATEGORY_ORDER then
-
             amount = remaining
-
         else
-
             amount =
                 math.floor(
                     width
@@ -448,7 +375,6 @@ local function drawComposition(data, x, y, width)
         end
 
         if amount > 0 then
-
             fill(
                 currentX,
                 y,
@@ -470,21 +396,12 @@ end
 --------------------------------------------------
 
 local function sampleHistory(value)
+    local now = os.epoch("utc")
 
-    local now =
-        os.epoch("utc")
-
-    if
-        now - lastHistorySample
-        >= 60000
-    then
-
+    if now - lastHistorySample >= 60000 then
         lastHistorySample = now
 
-        table.insert(
-            history,
-            value
-        )
+        table.insert(history, value)
 
         while #history > 60 do
             table.remove(history, 1)
@@ -493,32 +410,16 @@ local function sampleHistory(value)
 end
 
 local function drawGraph(x, y, width, height)
-
     if #history == 0 then
         return
     end
 
-    local minimum =
-        history[1]
+    local minimum = history[1]
+    local maximum = history[1]
 
-    local maximum =
-        history[1]
-
-    for _, value
-        in ipairs(history)
-    do
-
-        minimum =
-            math.min(
-                minimum,
-                value
-            )
-
-        maximum =
-            math.max(
-                maximum,
-                value
-            )
+    for _, value in ipairs(history) do
+        minimum = math.min(minimum, value)
+        maximum = math.max(maximum, value)
     end
 
     local range =
@@ -536,9 +437,7 @@ local function drawGraph(x, y, width, height)
     local column = 0
 
     for i = start, #history do
-
-        column =
-            column + 1
+        column = column + 1
 
         local ratio =
             (history[i] - minimum)
@@ -550,7 +449,6 @@ local function drawGraph(x, y, width, height)
             ) + 1
 
         for row = 0, graphHeight - 1 do
-
             writeAt(
                 x + column - 1,
                 y + height - 1 - row,
@@ -563,26 +461,18 @@ local function drawGraph(x, y, width, height)
 end
 
 --------------------------------------------------
--- DRAW
+-- DRAW DASHBOARD
 --------------------------------------------------
 
 local function draw()
+    local data = combine()
 
-    local data =
-        combine()
+    sampleHistory(data.usedSlots)
 
-    sampleHistory(
-        data.usedSlots
-    )
-
-    monitor.setBackgroundColor(
-        colors.black
-    )
-
+    monitor.setBackgroundColor(colors.black)
     monitor.clear()
 
-    local w, h =
-        monitor.getSize()
+    local w, h = monitor.getSize()
 
     --------------------------------------------------
     -- HEADER
@@ -608,6 +498,14 @@ local function draw()
         1,
         data.inventories
             .. " inventories",
+        colors.gray
+    )
+
+    writeAt(
+        48,
+        1,
+        data.itemTypes
+            .. " item types",
         colors.gray
     )
 
@@ -681,7 +579,7 @@ local function draw()
     )
 
     local itemRate =
-        data.itemsPerMinute
+        data.itemsPerMinute or 0
 
     writeAt(
         28,
@@ -715,12 +613,8 @@ local function draw()
     local lx = 2
     local ly = 9
 
-    for _, entry
-        in ipairs(CATEGORY_ORDER)
-    do
-
-        local name =
-            entry[1]
+    for _, entry in ipairs(CATEGORY_ORDER) do
+        local name = entry[1]
 
         local count =
             data.categories[name]
@@ -756,7 +650,7 @@ local function draw()
     end
 
     --------------------------------------------------
-    -- GRAPH
+    -- HISTORY
     --------------------------------------------------
 
     local graphTitleY =
@@ -777,7 +671,7 @@ local function draw()
     )
 
     --------------------------------------------------
-    -- LOWER HALF
+    -- LOWER SECTION
     --------------------------------------------------
 
     local bottomY =
@@ -786,6 +680,10 @@ local function draw()
     local rightX =
         math.floor(w * 0.56)
 
+    --------------------------------------------------
+    -- TOP CONSUMERS
+    --------------------------------------------------
+
     writeAt(
         2,
         bottomY,
@@ -793,10 +691,7 @@ local function draw()
         colors.gray
     )
 
-    for i, item
-        in ipairs(data.topItems)
-    do
-
+    for i, item in ipairs(data.topItems) do
         local y =
             bottomY + i
 
@@ -851,7 +746,7 @@ local function draw()
     end
 
     --------------------------------------------------
-    -- STORAGE NODES
+    -- STORAGE NETWORKS
     --------------------------------------------------
 
     writeAt(
@@ -861,10 +756,7 @@ local function draw()
         colors.gray
     )
 
-    for i, node
-        in ipairs(data.nodes)
-    do
-
+    for i, node in ipairs(data.nodes) do
         local y =
             bottomY + i
 
@@ -927,16 +819,13 @@ local function draw()
     --------------------------------------------------
 
     if data.activeNodes == 0 then
-
         writeAt(
             2,
             h,
             "WAITING FOR STORAGE NODES...",
             colors.red
         )
-
     else
-
         writeAt(
             2,
             h,
@@ -955,12 +844,12 @@ local function draw()
 end
 
 --------------------------------------------------
--- MAIN
+-- WIRELESS RECEIVER
 --------------------------------------------------
 
 local function receiveLoop()
     while true do
-        local event, sender, message, protocol =
+        local _, sender, message, protocol =
             os.pullEvent("rednet_message")
 
         if protocol == PROTOCOL
@@ -975,14 +864,24 @@ local function receiveLoop()
     end
 end
 
-local function drawLoop()
+--------------------------------------------------
+-- DISPLAY REFRESH
+--------------------------------------------------
+
+local function refreshLoop()
     while true do
         draw()
         sleep(1)
     end
 end
 
+--------------------------------------------------
+-- START
+--------------------------------------------------
+
+draw()
+
 parallel.waitForAll(
     receiveLoop,
-    drawLoop
+    refreshLoop
 )
