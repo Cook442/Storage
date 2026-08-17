@@ -1,8 +1,9 @@
 -- ============================================================
--- COOK'S SLOTS
+-- COOK'S SLOTS V2
 -- CC:Tweaked Touchscreen Slot Machine
--- Designed for Advanced Monitor ~57x38
--- Uses fictional credits only
+-- Pixel-art reel symbols
+-- Designed for ~57x38 Advanced Monitor
+-- Fictional in-game credits only
 -- ============================================================
 
 local monitor = peripheral.find("monitor")
@@ -16,14 +17,16 @@ monitor.setTextScale(0.5)
 local W, H = monitor.getSize()
 
 --------------------------------------------------
--- COLORS
+-- PALETTE
 --------------------------------------------------
 
-monitor.setPaletteColor(colors.black, 0x070707)
-monitor.setPaletteColor(colors.red, 0xD7263D)
+monitor.setPaletteColor(colors.black,  0x070707)
+monitor.setPaletteColor(colors.red,    0xD7263D)
 monitor.setPaletteColor(colors.yellow, 0xFFD447)
-monitor.setPaletteColor(colors.green, 0x29BF12)
-monitor.setPaletteColor(colors.blue, 0x247BA0)
+monitor.setPaletteColor(colors.green,  0x29BF12)
+monitor.setPaletteColor(colors.blue,   0x247BA0)
+monitor.setPaletteColor(colors.cyan,   0x4CC9F0)
+monitor.setPaletteColor(colors.orange, 0xF77F00)
 
 --------------------------------------------------
 -- GAME STATE
@@ -38,50 +41,96 @@ local message = "TOUCH SPIN TO PLAY"
 local reels = {1, 1, 1}
 
 --------------------------------------------------
+-- PIXEL COLORS
+--------------------------------------------------
+
+local PIXEL_COLORS = {
+    R = colors.red,
+    G = colors.lime,
+    C = colors.cyan,
+    W = colors.white,
+    Y = colors.yellow,
+    K = colors.black,
+    O = colors.orange,
+    B = colors.blue,
+    P = colors.purple
+}
+
+--------------------------------------------------
 -- SYMBOLS
 --------------------------------------------------
 
 local symbols = {
     {
-        text = "7",
         name = "SEVEN",
-        fg = colors.white,
-        bg = colors.red
+        payout = 50,
+        sprite = {
+            "RRRRRRR",
+            "     RR",
+            "    RR ",
+            "   RR  ",
+            "  RR   "
+        }
     },
 
     {
-        text = "$",
-        name = "BAR",
-        fg = colors.black,
-        bg = colors.yellow
-    },
-
-    {
-        text = "*",
-        name = "STAR",
-        fg = colors.yellow,
-        bg = colors.blue
-    },
-
-    {
-        text = "O",
         name = "CHERRY",
-        fg = colors.red,
-        bg = colors.white
+        payout = 10,
+        sprite = {
+            "  GG   ",
+            " G  G  ",
+            "G    G ",
+            " RR RR ",
+            " RR RR "
+        }
     },
 
     {
-        text = "D",
         name = "DIAMOND",
-        fg = colors.white,
-        bg = colors.cyan
+        payout = 15,
+        sprite = {
+            "  CCC  ",
+            " CWWWC ",
+            "CWWWWWC",
+            " CWWWC ",
+            "  CCC  "
+        }
     },
 
     {
-        text = "X",
-        name = "LUCKY",
-        fg = colors.white,
-        bg = colors.green
+        name = "STAR",
+        payout = 12,
+        sprite = {
+            "   Y   ",
+            " YYYYY ",
+            "  YYY  ",
+            " Y Y Y ",
+            "Y     Y"
+        }
+    },
+
+    {
+        name = "BAR",
+        payout = 8,
+        sprite = {
+            "WWWWWWW",
+            "WKKKKKW",
+            "WKBARKW",
+            "WKKKKKW",
+            "WWWWWWW"
+        }
+    },
+
+    {
+        name = "BELL",
+        payout = 10,
+        sprite = {
+            "  YYY  ",
+            " YYYYY ",
+            "YYYYYYY",
+            " YYYYY ",
+            "   Y   "
+        }
     }
 }
 
@@ -99,6 +148,10 @@ local function writeAt(x, y, text, fg, bg)
 
     text = tostring(text)
 
+    if #text > W - x + 1 then
+        text = text:sub(1, W - x + 1)
+    end
+
     monitor.setCursorPos(x, y)
     monitor.setTextColor(fg or colors.white)
     monitor.setBackgroundColor(bg or colors.black)
@@ -106,11 +159,15 @@ local function writeAt(x, y, text, fg, bg)
 end
 
 local function fill(x, y, width, color)
+    x = math.floor(x)
+    y = math.floor(y)
     width = math.floor(width)
 
     if width <= 0 then
         return
     end
+
+    width = math.min(width, W - x + 1)
 
     monitor.setCursorPos(x, y)
     monitor.setBackgroundColor(color)
@@ -124,14 +181,7 @@ end
 
 local function centered(y, text, fg, bg)
     local x = math.floor((W - #text) / 2) + 1
-
-    writeAt(
-        x,
-        y,
-        text,
-        fg,
-        bg
-    )
+    writeAt(x, y, text, fg, bg)
 end
 
 --------------------------------------------------
@@ -197,15 +247,14 @@ local function drawButton(button)
 end
 
 --------------------------------------------------
--- LAYOUT
+-- BUTTON LAYOUT
 --------------------------------------------------
 
-local centerX =
-    math.floor(W / 2)
+local centerX = math.floor(W / 2)
 
 addButton(
     "betDown",
-    4,
+    3,
     H - 6,
     11,
     H - 3,
@@ -227,7 +276,7 @@ addButton(
     "betUp",
     W - 11,
     H - 6,
-    W - 4,
+    W - 3,
     H - 3,
     "BET +",
     colors.gray
@@ -270,17 +319,20 @@ local function drawHeader()
 end
 
 --------------------------------------------------
--- MACHINE FRAME
+-- CABINET
 --------------------------------------------------
 
 local function drawFrame()
-    local x1 = 5
-    local x2 = W - 4
+    local x1 = 4
+    local x2 = W - 3
 
-    local y1 = 8
-    local y2 = 25
+    local y1 = 7
+    local y2 = 26
 
-    -- outer gold cabinet
+    --------------------------------------------------
+    -- OUTER CABINET
+    --------------------------------------------------
+
     for y = y1, y2 do
         fill(
             x1,
@@ -290,7 +342,10 @@ local function drawFrame()
         )
     end
 
-    -- inner black window
+    --------------------------------------------------
+    -- INNER BLACK PANEL
+    --------------------------------------------------
+
     for y = y1 + 2, y2 - 2 do
         fill(
             x1 + 2,
@@ -302,23 +357,61 @@ local function drawFrame()
 
     centered(
         y1,
-        "*** JACKPOT ***",
+        "* * * JACKPOT * * *",
         colors.yellow,
         colors.orange
     )
 end
 
 --------------------------------------------------
--- DRAW A REEL SYMBOL
+-- PIXEL SPRITE
+--------------------------------------------------
+
+local function drawPixelSprite(x, y, sprite)
+    for row = 1, #sprite do
+        local line = sprite[row]
+
+        for col = 1, #line do
+            local pixel =
+                line:sub(col, col)
+
+            if pixel ~= " " then
+                local color =
+                    PIXEL_COLORS[pixel]
+
+                if color then
+                    writeAt(
+                        x + col - 1,
+                        y + row - 1,
+                        " ",
+                        colors.white,
+                        color
+                    )
+                else
+                    -- allows letters like BAR
+                    writeAt(
+                        x + col - 1,
+                        y + row - 1,
+                        pixel,
+                        colors.white,
+                        colors.black
+                    )
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------
+-- REEL SYMBOL
 --------------------------------------------------
 
 local function drawSymbol(reelNumber, symbolIndex)
     local symbol =
         symbols[symbolIndex]
 
-    local reelWidth = 11
-
-    local spacing = 3
+    local reelWidth = 13
+    local spacing = 2
 
     local totalWidth =
         reelWidth * 3
@@ -334,13 +427,13 @@ local function drawSymbol(reelNumber, symbolIndex)
         + (reelNumber - 1)
         * (reelWidth + spacing)
 
-    local y = 13
+    local y = 11
 
     --------------------------------------------------
-    -- REEL BOX
+    -- WHITE REEL FRAME
     --------------------------------------------------
 
-    for row = y, y + 7 do
+    for row = y, y + 9 do
         fill(
             x,
             row,
@@ -350,44 +443,77 @@ local function drawSymbol(reelNumber, symbolIndex)
     end
 
     --------------------------------------------------
-    -- SYMBOL CENTER
+    -- INNER REEL
     --------------------------------------------------
 
-    for row = y + 2, y + 5 do
+    for row = y + 1, y + 6 do
         fill(
-            x + 2,
+            x + 1,
             row,
-            reelWidth - 4,
-            symbol.bg
+            reelWidth - 2,
+            colors.lightGray
         )
     end
 
-    writeAt(
-        x + math.floor(reelWidth / 2),
-        y + 3,
-        symbol.text,
-        symbol.fg,
-        symbol.bg
+    --------------------------------------------------
+    -- SPRITE
+    --------------------------------------------------
+
+    drawPixelSprite(
+        x + 3,
+        y + 1,
+        symbol.sprite
     )
 
     --------------------------------------------------
-    -- NAME
+    -- LABEL
     --------------------------------------------------
 
-    local name =
+    local label =
         symbol.name
 
-    if #name > reelWidth then
-        name =
-            name:sub(1, reelWidth)
+    if #label > reelWidth - 2 then
+        label =
+            label:sub(
+                1,
+                reelWidth - 2
+            )
     end
 
+    local labelX =
+        x
+        + math.floor(
+            (reelWidth - #label) / 2
+        )
+
     writeAt(
-        x + math.floor((reelWidth - #name) / 2),
-        y + 6,
-        name,
+        labelX,
+        y + 8,
+        label,
         colors.black,
         colors.white
+    )
+end
+
+--------------------------------------------------
+-- PAYLINE
+--------------------------------------------------
+
+local function drawPayline()
+    local y = 14
+
+    writeAt(
+        5,
+        y,
+        ">",
+        colors.red
+    )
+
+    writeAt(
+        W - 4,
+        y,
+        "<",
+        colors.red
     )
 end
 
@@ -398,24 +524,42 @@ end
 local function drawPayTable()
     centered(
         28,
-        "3x 7 = JACKPOT x50   |   3x SAME = x10   |   2x SAME = x2",
+        "777 x50   SAME x10+   TWO MATCH x2",
         colors.lightGray
+    )
+
+    centered(
+        29,
+        "DIAMOND / STAR / BELL PAY MORE",
+        colors.gray
     )
 end
 
 --------------------------------------------------
--- STATUS
+-- MESSAGE
 --------------------------------------------------
 
 local function drawMessage()
+    local color =
+        colors.white
+
+    if message:find("JACKPOT") then
+        color =
+            colors.yellow
+
+    elseif message:find("WIN") then
+        color =
+            colors.green
+
+    elseif message:find("ENOUGH") then
+        color =
+            colors.red
+    end
+
     centered(
         31,
         message,
-        message:find("WIN")
-            and colors.green
-            or message:find("JACKPOT")
-            and colors.yellow
-            or colors.white
+        color
     )
 end
 
@@ -444,6 +588,7 @@ local function draw()
         reels[3]
     )
 
+    drawPayline()
     drawPayTable()
     drawMessage()
 
@@ -486,7 +631,7 @@ local function calculatePayout()
         reels[3]
 
     --------------------------------------------------
-    -- THREE SEVENS
+    -- THREE 7s
     --------------------------------------------------
 
     if a == 1
@@ -494,8 +639,11 @@ local function calculatePayout()
         and c == 1
     then
 
-        return bet * 50,
-        "JACKPOT! +" .. (bet * 50)
+        local amount =
+            bet * 50
+
+        return amount,
+            "JACKPOT! +" .. amount
     end
 
     --------------------------------------------------
@@ -506,8 +654,15 @@ local function calculatePayout()
         and b == c
     then
 
-        return bet * 10,
-        "BIG WIN! +" .. (bet * 10)
+        local multiplier =
+            symbols[a].payout
+            or 10
+
+        local amount =
+            bet * multiplier
+
+        return amount,
+            "BIG WIN! +" .. amount
     end
 
     --------------------------------------------------
@@ -519,12 +674,15 @@ local function calculatePayout()
         or b == c
     then
 
-        return bet * 2,
-        "WIN! +" .. (bet * 2)
+        local amount =
+            bet * 2
+
+        return amount,
+            "WIN! +" .. amount
     end
 
     return 0,
-    "NO WIN"
+        "NO WIN"
 end
 
 --------------------------------------------------
@@ -553,17 +711,17 @@ local function spin()
         "SPINNING..."
 
     --------------------------------------------------
-    -- ANIMATION
+    -- REEL ANIMATION
     --------------------------------------------------
 
-    for frame = 1, 18 do
+    for frame = 1, 20 do
 
-        if frame <= 10 then
+        if frame <= 11 then
             reels[1] =
                 randomSymbol()
         end
 
-        if frame <= 14 then
+        if frame <= 15 then
             reels[2] =
                 randomSymbol()
         end
@@ -574,7 +732,7 @@ local function spin()
         draw()
 
         sleep(
-            0.04
+            0.035
             + frame * 0.006
         )
     end
@@ -609,7 +767,7 @@ local function spin()
 end
 
 --------------------------------------------------
--- BET CONTROLS
+-- BET DOWN
 --------------------------------------------------
 
 local function lowerBet()
@@ -625,6 +783,10 @@ local function lowerBet()
     draw()
 end
 
+--------------------------------------------------
+-- BET UP
+--------------------------------------------------
+
 local function raiseBet()
     if spinning then
         return
@@ -639,7 +801,7 @@ local function raiseBet()
 end
 
 --------------------------------------------------
--- TOUCH HANDLER
+-- TOUCH
 --------------------------------------------------
 
 local function handleTouch(x, y)
@@ -675,7 +837,7 @@ local function handleTouch(x, y)
 end
 
 --------------------------------------------------
--- TERMINAL
+-- COMPUTER TERMINAL
 --------------------------------------------------
 
 term.clear()
@@ -685,17 +847,17 @@ term.setCursorPos(
 )
 
 print(
-    "COOK'S SLOTS"
+    "COOK'S SLOTS V2"
 )
 
 print(
-    "------------"
+    "---------------"
 )
 
 print("")
 
 print(
-    "Touchscreen slot machine running."
+    "Pixel-art slot machine online."
 )
 
 print("")
@@ -710,7 +872,7 @@ print(
 print("")
 
 print(
-    "Uses fictional credits only."
+    "Touch the monitor to play."
 )
 
 print("")
