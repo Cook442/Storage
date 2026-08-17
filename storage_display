@@ -958,26 +958,31 @@ end
 -- MAIN
 --------------------------------------------------
 
-draw()
+local function receiveLoop()
+    while true do
+        local event, sender, message, protocol =
+            os.pullEvent("rednet_message")
 
-while true do
-
-    local sender, message =
-        rednet.receive(
-            PROTOCOL,
-            5
-        )
-
-    if sender
-        and type(message) == "table"
-        and message.nodeId
-    then
-
-        nodes[message.nodeId] = {
-            data = message,
-            lastSeen = os.epoch("utc")
-        }
+        if protocol == PROTOCOL
+            and type(message) == "table"
+            and message.nodeId
+        then
+            nodes[message.nodeId] = {
+                data = message,
+                lastSeen = os.epoch("utc")
+            }
+        end
     end
-
-    draw()
 end
+
+local function drawLoop()
+    while true do
+        draw()
+        sleep(1)
+    end
+end
+
+parallel.waitForAll(
+    receiveLoop,
+    drawLoop
+)
