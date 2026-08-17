@@ -1,0 +1,188 @@
+-- ============================================================
+-- COOK'S STORAGE - UNIVERSAL STRESS NODE
+-- Place computer next to a Create Stressometer
+-- Attach a wireless modem
+-- ============================================================
+
+local DISPLAY_ID = 1
+local PROTOCOL = "cooks_stress_v1"
+local REFRESH = 2
+
+--------------------------------------------------
+-- FIND WIRELESS MODEM
+--------------------------------------------------
+
+local modemSide = nil
+
+for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.hasType(name, "modem") then
+        local modem = peripheral.wrap(name)
+
+        if modem and modem.isWireless and modem.isWireless() then
+            modemSide = name
+            break
+        end
+    end
+end
+
+if not modemSide then
+    error("No wireless modem found!")
+end
+
+if not rednet.isOpen(modemSide) then
+    rednet.open(modemSide)
+end
+
+--------------------------------------------------
+-- FIND STRESSOMETER
+--------------------------------------------------
+
+local stressName = nil
+local stressometer = nil
+
+for _, name in ipairs(peripheral.getNames()) do
+    local p = peripheral.wrap(name)
+
+    if p then
+        local methods = peripheral.getMethods(name)
+
+        local hasStress = false
+        local hasCapacity = false
+
+        for _, method in ipairs(methods or {}) do
+            if method == "getStress" then
+                hasStress = true
+            elseif method == "getStressCapacity" then
+                hasCapacity = true
+            end
+        end
+
+        if hasStress and hasCapacity then
+            stressName = name
+            stressometer = p
+            break
+        end
+    end
+end
+
+if not stressometer then
+    error("No Create Stressometer found!")
+end
+
+--------------------------------------------------
+-- NODE INFO
+--------------------------------------------------
+
+local NODE_ID = os.getComputerID()
+
+local NODE_NAME =
+    os.getComputerLabel()
+    or ("Stress #" .. NODE_ID)
+
+--------------------------------------------------
+-- FORMAT
+--------------------------------------------------
+
+local function short(n)
+    n = tonumber(n) or 0
+
+    if math.abs(n) >= 1000000 then
+        return string.format("%.1fM", n / 1000000)
+    elseif math.abs(n) >= 1000 then
+        return string.format("%.1fK", n / 1000)
+    end
+
+    return string.format("%.0f", n)
+end
+
+--------------------------------------------------
+-- SCREEN
+--------------------------------------------------
+
+term.clear()
+term.setCursorPos(1, 1)
+
+print("COOK'S STRESS NODE")
+print("--------------------")
+print("Name: " .. NODE_NAME)
+print("Computer #" .. NODE_ID)
+print("Wireless: " .. modemSide)
+print("Stressometer: " .. stressName)
+print("Display: #1")
+print("")
+
+--------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------
+
+while true do
+    local okStress, stress =
+        pcall(stressometer.getStress)
+
+    local okCapacity, capacity =
+        pcall(stressometer.getStressCapacity)
+
+    stress = okStress and tonumber(stress) or 0
+    capacity = okCapacity and tonumber(capacity) or 0
+
+    local percent = 0
+
+    if capacity > 0 then
+        percent = stress / capacity
+    end
+
+    local available =
+        math.max(0, capacity - stress)
+
+    local data = {
+        nodeId = NODE_ID,
+        nodeName = NODE_NAME,
+
+        stress = stress,
+        capacity = capacity,
+        available = available,
+        percent = percent
+    }
+
+    local sent =
+        rednet.send(
+            DISPLAY_ID,
+            data,
+            PROTOCOL
+        )
+
+    term.setCursorPos(1, 9)
+
+    term.clearLine()
+    print(
+        "Stress: "
+        .. short(stress)
+        .. " / "
+        .. short(capacity)
+        .. " SU"
+    )
+
+    term.clearLine()
+    print(
+        "Usage: "
+        .. math.floor(percent * 100)
+        .. "%"
+    )
+
+    term.clearLine()
+    print(
+        "Available: "
+        .. short(available)
+        .. " SU"
+    )
+
+    term.clearLine()
+
+    if sent then
+        print("DISPLAY: ONLINE ")
+    else
+        print("DISPLAY: OFFLINE")
+    end
+
+    sleep(REFRESH)
+end
