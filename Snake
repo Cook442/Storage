@@ -1,0 +1,381 @@
+-- ============================================================
+-- COOK'S SNAKE
+-- CC:Tweaked
+--
+-- Controls are on the computer.
+-- Game is displayed live on the attached monitor.
+-- ============================================================
+
+local monitor = peripheral.find("monitor")
+
+if not monitor then
+    error("No monitor found!")
+end
+
+monitor.setTextScale(0.5)
+
+local w, h = monitor.getSize()
+
+local HEADER = 3
+
+local PLAY_MIN_X = 2
+local PLAY_MAX_X = w - 1
+local PLAY_MIN_Y = HEADER + 1
+local PLAY_MAX_Y = h - 1
+
+local START_SPEED = 0.18
+local MIN_SPEED = 0.06
+
+local snake = {}
+local food = {}
+local score = 0
+local speed = START_SPEED
+local gameOver = false
+local running = true
+
+local direction = {x = 1, y = 0}
+local nextDirection = {x = 1, y = 0}
+
+--------------------------------------------------
+-- DRAW HELPERS
+--------------------------------------------------
+
+local function writeAt(x, y, text, fg, bg)
+    monitor.setCursorPos(x, y)
+    monitor.setTextColor(fg or colors.white)
+    monitor.setBackgroundColor(bg or colors.black)
+    monitor.write(text)
+end
+
+local function clear()
+    monitor.setBackgroundColor(colors.black)
+    monitor.clear()
+end
+
+local function drawBorder()
+    monitor.setBackgroundColor(colors.gray)
+
+    for x = 1, w do
+        monitor.setCursorPos(x, HEADER)
+        monitor.write(" ")
+
+        monitor.setCursorPos(x, h)
+        monitor.write(" ")
+    end
+
+    for y = HEADER, h do
+        monitor.setCursorPos(1, y)
+        monitor.write(" ")
+
+        monitor.setCursorPos(w, y)
+        monitor.write(" ")
+    end
+
+    monitor.setBackgroundColor(colors.black)
+end
+
+local function drawHeader()
+    writeAt(2, 1, "COOK'S SNAKE", colors.lime)
+
+    local scoreText = "SCORE: " .. score
+
+    writeAt(
+        w - #scoreText - 1,
+        1,
+        scoreText,
+        colors.white
+    )
+
+    writeAt(
+        2,
+        2,
+        "PLAYER CONTROLS: WASD / ARROWS",
+        colors.gray
+    )
+end
+
+local function drawSnake()
+    for i, part in ipairs(snake) do
+        local color
+
+        if i == 1 then
+            color = colors.lime
+        else
+            color = colors.green
+        end
+
+        writeAt(
+            part.x,
+            part.y,
+            " ",
+            colors.white,
+            color
+        )
+    end
+end
+
+local function drawFood()
+    writeAt(
+        food.x,
+        food.y,
+        " ",
+        colors.white,
+        colors.red
+    )
+end
+
+local function drawGame()
+    clear()
+    drawHeader()
+    drawBorder()
+    drawFood()
+    drawSnake()
+end
+
+--------------------------------------------------
+-- FOOD
+--------------------------------------------------
+
+local function snakeContains(x, y)
+    for _, part in ipairs(snake) do
+        if part.x == x and part.y == y then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function spawnFood()
+    repeat
+        food = {
+            x = math.random(PLAY_MIN_X, PLAY_MAX_X),
+            y = math.random(PLAY_MIN_Y, PLAY_MAX_Y)
+        }
+    until not snakeContains(food.x, food.y)
+end
+
+--------------------------------------------------
+-- RESET
+--------------------------------------------------
+
+local function resetGame()
+    local centerX =
+        math.floor((PLAY_MIN_X + PLAY_MAX_X) / 2)
+
+    local centerY =
+        math.floor((PLAY_MIN_Y + PLAY_MAX_Y) / 2)
+
+    snake = {
+        {x = centerX,     y = centerY},
+        {x = centerX - 1, y = centerY},
+        {x = centerX - 2, y = centerY}
+    }
+
+    direction = {x = 1, y = 0}
+    nextDirection = {x = 1, y = 0}
+
+    score = 0
+    speed = START_SPEED
+    gameOver = false
+
+    spawnFood()
+    drawGame()
+end
+
+--------------------------------------------------
+-- MOVEMENT
+--------------------------------------------------
+
+local function moveSnake()
+    direction = nextDirection
+
+    local head = snake[1]
+
+    local newHead = {
+        x = head.x + direction.x,
+        y = head.y + direction.y
+    }
+
+    if newHead.x < PLAY_MIN_X
+        or newHead.x > PLAY_MAX_X
+        or newHead.y < PLAY_MIN_Y
+        or newHead.y > PLAY_MAX_Y
+    then
+        gameOver = true
+        return
+    end
+
+    if snakeContains(newHead.x, newHead.y) then
+        gameOver = true
+        return
+    end
+
+    table.insert(snake, 1, newHead)
+
+    if newHead.x == food.x
+        and newHead.y == food.y
+    then
+        score = score + 1
+
+        speed =
+            math.max(
+                MIN_SPEED,
+                START_SPEED - score * 0.006
+            )
+
+        spawnFood()
+    else
+        table.remove(snake)
+    end
+end
+
+--------------------------------------------------
+-- CONTROLS
+--------------------------------------------------
+
+local function handleKey(key)
+    if key == keys.w or key == keys.up then
+        if direction.y ~= 1 then
+            nextDirection = {x = 0, y = -1}
+        end
+
+    elseif key == keys.s or key == keys.down then
+        if direction.y ~= -1 then
+            nextDirection = {x = 0, y = 1}
+        end
+
+    elseif key == keys.a or key == keys.left then
+        if direction.x ~= 1 then
+            nextDirection = {x = -1, y = 0}
+        end
+
+    elseif key == keys.d or key == keys.right then
+        if direction.x ~= -1 then
+            nextDirection = {x = 1, y = 0}
+        end
+
+    elseif key == keys.r and gameOver then
+        resetGame()
+
+    elseif key == keys.q then
+        running = false
+    end
+end
+
+--------------------------------------------------
+-- GAME OVER
+--------------------------------------------------
+
+local function drawGameOver()
+    local centerY = math.floor(h / 2)
+
+    local title = "GAME OVER"
+    local scoreText = "FINAL SCORE: " .. score
+    local restartText = "PRESS R TO RESTART"
+    local quitText = "PRESS Q TO QUIT"
+
+    writeAt(
+        math.floor((w - #title) / 2),
+        centerY - 2,
+        title,
+        colors.red
+    )
+
+    writeAt(
+        math.floor((w - #scoreText) / 2),
+        centerY,
+        scoreText,
+        colors.white
+    )
+
+    writeAt(
+        math.floor((w - #restartText) / 2),
+        centerY + 2,
+        restartText,
+        colors.lime
+    )
+
+    writeAt(
+        math.floor((w - #quitText) / 2),
+        centerY + 3,
+        quitText,
+        colors.gray
+    )
+end
+
+--------------------------------------------------
+-- GAME LOOP
+--------------------------------------------------
+
+local function gameLoop()
+    while running do
+        if gameOver then
+            sleep(0.05)
+        else
+            sleep(speed)
+
+            moveSnake()
+            drawGame()
+
+            if gameOver then
+                drawGameOver()
+            end
+        end
+    end
+end
+
+--------------------------------------------------
+-- KEYBOARD LOOP
+--------------------------------------------------
+
+local function inputLoop()
+    while running do
+        local _, key = os.pullEvent("key")
+        handleKey(key)
+    end
+end
+
+--------------------------------------------------
+-- COMPUTER TERMINAL
+--------------------------------------------------
+
+local function drawComputerScreen()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("COOK'S SNAKE")
+    print("------------")
+    print("")
+    print("Game is running on the monitor.")
+    print("")
+    print("Controls:")
+    print("W / Up    = Move Up")
+    print("S / Down  = Move Down")
+    print("A / Left  = Move Left")
+    print("D / Right = Move Right")
+    print("")
+    print("R = Restart")
+    print("Q = Quit")
+end
+
+--------------------------------------------------
+-- START
+--------------------------------------------------
+
+math.randomseed(os.epoch("utc"))
+
+drawComputerScreen()
+resetGame()
+
+parallel.waitForAll(
+    gameLoop,
+    inputLoop
+)
+
+monitor.setBackgroundColor(colors.black)
+monitor.clear()
+
+term.clear()
+term.setCursorPos(1, 1)
+print("Snake closed.")
