@@ -1,0 +1,748 @@
+-- ============================================================
+-- COOK'S SLOTS
+-- CC:Tweaked Touchscreen Slot Machine
+-- Designed for Advanced Monitor ~57x38
+-- Uses fictional credits only
+-- ============================================================
+
+local monitor = peripheral.find("monitor")
+
+if not monitor then
+    error("No monitor found!")
+end
+
+monitor.setTextScale(0.5)
+
+local W, H = monitor.getSize()
+
+--------------------------------------------------
+-- COLORS
+--------------------------------------------------
+
+monitor.setPaletteColor(colors.black, 0x070707)
+monitor.setPaletteColor(colors.red, 0xD7263D)
+monitor.setPaletteColor(colors.yellow, 0xFFD447)
+monitor.setPaletteColor(colors.green, 0x29BF12)
+monitor.setPaletteColor(colors.blue, 0x247BA0)
+
+--------------------------------------------------
+-- GAME STATE
+--------------------------------------------------
+
+local credits = 1000
+local bet = 25
+
+local spinning = false
+local message = "TOUCH SPIN TO PLAY"
+
+local reels = {1, 1, 1}
+
+--------------------------------------------------
+-- SYMBOLS
+--------------------------------------------------
+
+local symbols = {
+    {
+        text = "7",
+        name = "SEVEN",
+        fg = colors.white,
+        bg = colors.red
+    },
+
+    {
+        text = "$",
+        name = "BAR",
+        fg = colors.black,
+        bg = colors.yellow
+    },
+
+    {
+        text = "*",
+        name = "STAR",
+        fg = colors.yellow,
+        bg = colors.blue
+    },
+
+    {
+        text = "O",
+        name = "CHERRY",
+        fg = colors.red,
+        bg = colors.white
+    },
+
+    {
+        text = "D",
+        name = "DIAMOND",
+        fg = colors.white,
+        bg = colors.cyan
+    },
+
+    {
+        text = "X",
+        name = "LUCKY",
+        fg = colors.white,
+        bg = colors.green
+    }
+}
+
+--------------------------------------------------
+-- DRAW HELPERS
+--------------------------------------------------
+
+local function writeAt(x, y, text, fg, bg)
+    x = math.floor(x)
+    y = math.floor(y)
+
+    if x < 1 or y < 1 or x > W or y > H then
+        return
+    end
+
+    text = tostring(text)
+
+    monitor.setCursorPos(x, y)
+    monitor.setTextColor(fg or colors.white)
+    monitor.setBackgroundColor(bg or colors.black)
+    monitor.write(text)
+end
+
+local function fill(x, y, width, color)
+    width = math.floor(width)
+
+    if width <= 0 then
+        return
+    end
+
+    monitor.setCursorPos(x, y)
+    monitor.setBackgroundColor(color)
+    monitor.write(string.rep(" ", width))
+end
+
+local function clear()
+    monitor.setBackgroundColor(colors.black)
+    monitor.clear()
+end
+
+local function centered(y, text, fg, bg)
+    local x = math.floor((W - #text) / 2) + 1
+
+    writeAt(
+        x,
+        y,
+        text,
+        fg,
+        bg
+    )
+end
+
+--------------------------------------------------
+-- BUTTONS
+--------------------------------------------------
+
+local buttons = {}
+
+local function addButton(name, x1, y1, x2, y2, text, color)
+    buttons[name] = {
+        x1 = x1,
+        y1 = y1,
+        x2 = x2,
+        y2 = y2,
+        text = text,
+        color = color
+    }
+end
+
+local function inside(button, x, y)
+    return
+        x >= button.x1
+        and x <= button.x2
+        and y >= button.y1
+        and y <= button.y2
+end
+
+local function drawButton(button)
+    for y = button.y1, button.y2 do
+        fill(
+            button.x1,
+            y,
+            button.x2 - button.x1 + 1,
+            button.color
+        )
+    end
+
+    local cx =
+        math.floor(
+            (
+                button.x1
+                + button.x2
+                - #button.text
+                + 1
+            ) / 2
+        )
+
+    local cy =
+        math.floor(
+            (
+                button.y1
+                + button.y2
+            ) / 2
+        )
+
+    writeAt(
+        cx,
+        cy,
+        button.text,
+        colors.white,
+        button.color
+    )
+end
+
+--------------------------------------------------
+-- LAYOUT
+--------------------------------------------------
+
+local centerX =
+    math.floor(W / 2)
+
+addButton(
+    "betDown",
+    4,
+    H - 6,
+    11,
+    H - 3,
+    "BET -",
+    colors.gray
+)
+
+addButton(
+    "spin",
+    centerX - 9,
+    H - 6,
+    centerX + 9,
+    H - 3,
+    "SPIN",
+    colors.red
+)
+
+addButton(
+    "betUp",
+    W - 11,
+    H - 6,
+    W - 4,
+    H - 3,
+    "BET +",
+    colors.gray
+)
+
+--------------------------------------------------
+-- HEADER
+--------------------------------------------------
+
+local function drawHeader()
+    centered(
+        2,
+        "COOK'S SLOTS",
+        colors.yellow
+    )
+
+    writeAt(
+        3,
+        4,
+        "CREDITS",
+        colors.gray
+    )
+
+    writeAt(
+        3,
+        5,
+        tostring(credits),
+        colors.green
+    )
+
+    local betText =
+        "BET " .. bet
+
+    writeAt(
+        W - #betText - 2,
+        5,
+        betText,
+        colors.orange
+    )
+end
+
+--------------------------------------------------
+-- MACHINE FRAME
+--------------------------------------------------
+
+local function drawFrame()
+    local x1 = 5
+    local x2 = W - 4
+
+    local y1 = 8
+    local y2 = 25
+
+    -- outer gold cabinet
+    for y = y1, y2 do
+        fill(
+            x1,
+            y,
+            x2 - x1 + 1,
+            colors.orange
+        )
+    end
+
+    -- inner black window
+    for y = y1 + 2, y2 - 2 do
+        fill(
+            x1 + 2,
+            y,
+            x2 - x1 - 3,
+            colors.black
+        )
+    end
+
+    centered(
+        y1,
+        "*** JACKPOT ***",
+        colors.yellow,
+        colors.orange
+    )
+end
+
+--------------------------------------------------
+-- DRAW A REEL SYMBOL
+--------------------------------------------------
+
+local function drawSymbol(reelNumber, symbolIndex)
+    local symbol =
+        symbols[symbolIndex]
+
+    local reelWidth = 11
+
+    local spacing = 3
+
+    local totalWidth =
+        reelWidth * 3
+        + spacing * 2
+
+    local startX =
+        math.floor(
+            (W - totalWidth) / 2
+        ) + 1
+
+    local x =
+        startX
+        + (reelNumber - 1)
+        * (reelWidth + spacing)
+
+    local y = 13
+
+    --------------------------------------------------
+    -- REEL BOX
+    --------------------------------------------------
+
+    for row = y, y + 7 do
+        fill(
+            x,
+            row,
+            reelWidth,
+            colors.white
+        )
+    end
+
+    --------------------------------------------------
+    -- SYMBOL CENTER
+    --------------------------------------------------
+
+    for row = y + 2, y + 5 do
+        fill(
+            x + 2,
+            row,
+            reelWidth - 4,
+            symbol.bg
+        )
+    end
+
+    writeAt(
+        x + math.floor(reelWidth / 2),
+        y + 3,
+        symbol.text,
+        symbol.fg,
+        symbol.bg
+    )
+
+    --------------------------------------------------
+    -- NAME
+    --------------------------------------------------
+
+    local name =
+        symbol.name
+
+    if #name > reelWidth then
+        name =
+            name:sub(1, reelWidth)
+    end
+
+    writeAt(
+        x + math.floor((reelWidth - #name) / 2),
+        y + 6,
+        name,
+        colors.black,
+        colors.white
+    )
+end
+
+--------------------------------------------------
+-- PAY TABLE
+--------------------------------------------------
+
+local function drawPayTable()
+    centered(
+        28,
+        "3x 7 = JACKPOT x50   |   3x SAME = x10   |   2x SAME = x2",
+        colors.lightGray
+    )
+end
+
+--------------------------------------------------
+-- STATUS
+--------------------------------------------------
+
+local function drawMessage()
+    centered(
+        31,
+        message,
+        message:find("WIN")
+            and colors.green
+            or message:find("JACKPOT")
+            and colors.yellow
+            or colors.white
+    )
+end
+
+--------------------------------------------------
+-- FULL DRAW
+--------------------------------------------------
+
+local function draw()
+    clear()
+
+    drawHeader()
+    drawFrame()
+
+    drawSymbol(
+        1,
+        reels[1]
+    )
+
+    drawSymbol(
+        2,
+        reels[2]
+    )
+
+    drawSymbol(
+        3,
+        reels[3]
+    )
+
+    drawPayTable()
+    drawMessage()
+
+    drawButton(
+        buttons.betDown
+    )
+
+    drawButton(
+        buttons.spin
+    )
+
+    drawButton(
+        buttons.betUp
+    )
+end
+
+--------------------------------------------------
+-- RANDOM SYMBOL
+--------------------------------------------------
+
+local function randomSymbol()
+    return math.random(
+        1,
+        #symbols
+    )
+end
+
+--------------------------------------------------
+-- PAYOUT
+--------------------------------------------------
+
+local function calculatePayout()
+    local a =
+        reels[1]
+
+    local b =
+        reels[2]
+
+    local c =
+        reels[3]
+
+    --------------------------------------------------
+    -- THREE SEVENS
+    --------------------------------------------------
+
+    if a == 1
+        and b == 1
+        and c == 1
+    then
+
+        return bet * 50,
+        "JACKPOT! +" .. (bet * 50)
+    end
+
+    --------------------------------------------------
+    -- THREE MATCHING
+    --------------------------------------------------
+
+    if a == b
+        and b == c
+    then
+
+        return bet * 10,
+        "BIG WIN! +" .. (bet * 10)
+    end
+
+    --------------------------------------------------
+    -- TWO MATCHING
+    --------------------------------------------------
+
+    if a == b
+        or a == c
+        or b == c
+    then
+
+        return bet * 2,
+        "WIN! +" .. (bet * 2)
+    end
+
+    return 0,
+    "NO WIN"
+end
+
+--------------------------------------------------
+-- SPIN
+--------------------------------------------------
+
+local function spin()
+    if spinning then
+        return
+    end
+
+    if credits < bet then
+        message =
+            "NOT ENOUGH CREDITS"
+
+        draw()
+        return
+    end
+
+    spinning = true
+
+    credits =
+        credits - bet
+
+    message =
+        "SPINNING..."
+
+    --------------------------------------------------
+    -- ANIMATION
+    --------------------------------------------------
+
+    for frame = 1, 18 do
+
+        if frame <= 10 then
+            reels[1] =
+                randomSymbol()
+        end
+
+        if frame <= 14 then
+            reels[2] =
+                randomSymbol()
+        end
+
+        reels[3] =
+            randomSymbol()
+
+        draw()
+
+        sleep(
+            0.04
+            + frame * 0.006
+        )
+    end
+
+    --------------------------------------------------
+    -- FINAL RESULTS
+    --------------------------------------------------
+
+    reels[1] =
+        randomSymbol()
+
+    reels[2] =
+        randomSymbol()
+
+    reels[3] =
+        randomSymbol()
+
+    local payout,
+        payoutMessage =
+        calculatePayout()
+
+    credits =
+        credits + payout
+
+    message =
+        payoutMessage
+
+    spinning =
+        false
+
+    draw()
+end
+
+--------------------------------------------------
+-- BET CONTROLS
+--------------------------------------------------
+
+local function lowerBet()
+    if spinning then
+        return
+    end
+
+    if bet > 10 then
+        bet =
+            bet - 5
+    end
+
+    draw()
+end
+
+local function raiseBet()
+    if spinning then
+        return
+    end
+
+    if bet < 100 then
+        bet =
+            bet + 5
+    end
+
+    draw()
+end
+
+--------------------------------------------------
+-- TOUCH HANDLER
+--------------------------------------------------
+
+local function handleTouch(x, y)
+    if inside(
+        buttons.spin,
+        x,
+        y
+    ) then
+
+        spin()
+        return
+    end
+
+    if inside(
+        buttons.betDown,
+        x,
+        y
+    ) then
+
+        lowerBet()
+        return
+    end
+
+    if inside(
+        buttons.betUp,
+        x,
+        y
+    ) then
+
+        raiseBet()
+        return
+    end
+end
+
+--------------------------------------------------
+-- TERMINAL
+--------------------------------------------------
+
+term.clear()
+term.setCursorPos(
+    1,
+    1
+)
+
+print(
+    "COOK'S SLOTS"
+)
+
+print(
+    "------------"
+)
+
+print("")
+
+print(
+    "Touchscreen slot machine running."
+)
+
+print("")
+
+print(
+    "Monitor: "
+    .. W
+    .. " x "
+    .. H
+)
+
+print("")
+
+print(
+    "Uses fictional credits only."
+)
+
+print("")
+
+print(
+    "Ctrl+T to stop."
+)
+
+--------------------------------------------------
+-- START
+--------------------------------------------------
+
+math.randomseed(
+    os.epoch("utc")
+)
+
+reels = {
+    randomSymbol(),
+    randomSymbol(),
+    randomSymbol()
+}
+
+draw()
+
+while true do
+    local _, side, x, y =
+        os.pullEvent(
+            "monitor_touch"
+        )
+
+    handleTouch(
+        x,
+        y
+    )
+end
