@@ -1,10 +1,19 @@
 -- ============================================================
--- COOK'S STORAGE - MASTER DISPLAY
+-- COOK'S STORAGE - MASTER DASHBOARD
 -- Computer #1
--- Unlimited wireless storage nodes
+--
+-- STORAGE NODES:
+--   protocol = cooks_storage_v2
+--
+-- STRESS NODES:
+--   protocol = cooks_stress_v1
+--
+-- Automatically discovers unlimited nodes.
 -- ============================================================
 
-local PROTOCOL = "cooks_storage_v2"
+local STORAGE_PROTOCOL = "cooks_storage_v2"
+local STRESS_PROTOCOL  = "cooks_stress_v1"
+
 local NODE_TIMEOUT = 20
 
 --------------------------------------------------
@@ -17,7 +26,10 @@ for _, name in ipairs(peripheral.getNames()) do
     if peripheral.hasType(name, "modem") then
         local modem = peripheral.wrap(name)
 
-        if modem and modem.isWireless and modem.isWireless() then
+        if modem
+            and modem.isWireless
+            and modem.isWireless()
+        then
             wirelessModem = name
             break
         end
@@ -48,25 +60,31 @@ monitor.setTextScale(0.5)
 -- DATA
 --------------------------------------------------
 
-local nodes = {}
+local storageNodes = {}
+local stressNodes = {}
+
 local history = {}
 local lastHistorySample = 0
 
+--------------------------------------------------
+-- COLORS / CATEGORIES
+--------------------------------------------------
+
 local CATEGORY_ORDER = {
-    {"Wood", colors.brown},
+    {"Wood",      colors.brown},
     {"Ores/Gems", colors.orange},
-    {"Tools", colors.lightGray},
-    {"Misc", colors.gray},
-    {"Armor", colors.cyan},
-    {"Potions", colors.purple},
-    {"Blocks", colors.white},
-    {"Create", colors.magenta},
-    {"Food", colors.lime},
-    {"Weapons", colors.red}
+    {"Tools",     colors.lightGray},
+    {"Misc",      colors.gray},
+    {"Armor",     colors.cyan},
+    {"Potions",   colors.purple},
+    {"Blocks",    colors.white},
+    {"Create",    colors.magenta},
+    {"Food",      colors.lime},
+    {"Weapons",   colors.red}
 }
 
 --------------------------------------------------
--- HELPERS
+-- NUMBER FORMAT
 --------------------------------------------------
 
 local function short(n)
@@ -86,20 +104,27 @@ end
 local function comma(n)
     n = math.floor(tonumber(n) or 0)
 
+    local sign = ""
+
+    if n < 0 then
+        sign = "-"
+        n = math.abs(n)
+    end
+
     local text = tostring(n)
 
     while true do
-        local new, changes =
-            text:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+        local changed, count =
+            text:gsub("^(%d+)(%d%d%d)", "%1,%2")
 
-        text = new
+        text = changed
 
-        if changes == 0 then
+        if count == 0 then
             break
         end
     end
 
-    return text
+    return sign .. text
 end
 
 local function cleanName(name)
@@ -109,6 +134,10 @@ local function cleanName(name)
 
     return name
 end
+
+--------------------------------------------------
+-- MONITOR DRAWING
+--------------------------------------------------
 
 local function writeAt(x, y, text, fg, bg)
     local w, h = monitor.getSize()
@@ -144,6 +173,17 @@ local function fill(x, y, width, color)
     monitor.setBackgroundColor(colors.black)
 end
 
+local function horizontalLine(y, color)
+    local w = monitor.getSize()
+
+    writeAt(
+        2,
+        y,
+        string.rep("-", math.max(1, w - 3)),
+        color or colors.gray
+    )
+end
+
 local function bar(x, y, width, ratio, color)
     ratio = math.max(0, math.min(1, ratio or 0))
 
@@ -157,9 +197,9 @@ local function bar(x, y, width, ratio, color)
 end
 
 local function usageColor(ratio)
-    if ratio >= 0.90 then
+    if ratio >= 0.95 then
         return colors.red
-    elseif ratio >= 0.75 then
+    elseif ratio >= 0.80 then
         return colors.orange
     end
 
@@ -167,26 +207,31 @@ local function usageColor(ratio)
 end
 
 --------------------------------------------------
--- REMOVE DEAD NODES
+-- REMOVE OFFLINE NODES
 --------------------------------------------------
 
-local function removeExpiredNodes()
+local function removeExpired()
     local now = os.epoch("utc")
+    local timeout = NODE_TIMEOUT * 1000
 
-    for id, node in pairs(nodes) do
-        if now - node.lastSeen > NODE_TIMEOUT * 1000 then
-            nodes[id] = nil
+    for id, node in pairs(storageNodes) do
+        if now - node.lastSeen > timeout then
+            storageNodes[id] = nil
+        end
+    end
+
+    for id, node in pairs(stressNodes) do
+        if now - node.lastSeen > timeout then
+            stressNodes[id] = nil
         end
     end
 end
 
 --------------------------------------------------
--- COMBINE ALL ACTIVE NODES
+-- COMBINE STORAGE
 --------------------------------------------------
 
-local function combine()
-    removeExpiredNodes()
-
+local function combineStorage()
     local result = {
         activeNodes = 0,
         inventories = 0,
@@ -205,14 +250,13 @@ local function combine()
         nodes = {}
     }
 
-    for _, category in ipairs(CATEGORY_ORDER) do
-        result.categories[category[1]] = 0
+    for _, entry in ipairs(CATEGORY_ORDER) do
+        result.categories[entry[1]] = 0
     end
 
     local combinedItems = {}
-    local uniqueItems = {}
 
-    for id, node in pairs(nodes) do
+    for id, node in pairs(storageNodes) do
         local data = node.data
 
         result.activeNodes =
@@ -234,6 +278,10 @@ local function combine()
             result.totalItems
             + (data.totalItems or 0)
 
+        result.itemTypes =
+            result.itemTypes
+            + (data.itemTypes or 0)
+
         result.itemsPerMinute =
             result.itemsPerMinute
             + (data.itemsPerMinute or 0)
@@ -254,8 +302,6 @@ local function combine()
             combinedItems[item.name] =
                 (combinedItems[item.name] or 0)
                 + item.count
-
-            uniqueItems[item.name] = true
         end
 
         table.insert(
@@ -270,7 +316,7 @@ local function combine()
                 inventories =
                     data.inventories or 0,
 
-                items =
+                totalItems =
                     data.totalItems or 0,
 
                 usedSlots =
@@ -281,22 +327,6 @@ local function combine()
             }
         )
     end
-
-    --------------------------------------------------
-    -- ITEM TYPES
-    --------------------------------------------------
-
-    local itemTypes = 0
-
-    for _ in pairs(uniqueItems) do
-        itemTypes = itemTypes + 1
-    end
-
-    result.itemTypes = itemTypes
-
-    --------------------------------------------------
-    -- TOP ITEMS
-    --------------------------------------------------
 
     for name, count in pairs(combinedItems) do
         table.insert(
@@ -319,10 +349,6 @@ local function combine()
         table.remove(result.topItems)
     end
 
-    --------------------------------------------------
-    -- SORT NODES
-    --------------------------------------------------
-
     table.sort(
         result.nodes,
         function(a, b)
@@ -336,7 +362,80 @@ local function combine()
 end
 
 --------------------------------------------------
--- COMPOSITION BAR
+-- COMBINE STRESS
+--------------------------------------------------
+
+local function combineStress()
+    local result = {
+        activeNodes = 0,
+        stress = 0,
+        capacity = 0,
+        available = 0,
+        nodes = {}
+    }
+
+    for id, node in pairs(stressNodes) do
+        local data = node.data
+
+        local stress =
+            tonumber(data.stress) or 0
+
+        local capacity =
+            tonumber(data.capacity) or 0
+
+        result.activeNodes =
+            result.activeNodes + 1
+
+        result.stress =
+            result.stress + stress
+
+        result.capacity =
+            result.capacity + capacity
+
+        table.insert(
+            result.nodes,
+            {
+                id = id,
+
+                name =
+                    data.nodeName
+                    or ("Stress #" .. id),
+
+                stress = stress,
+                capacity = capacity
+            }
+        )
+    end
+
+    result.available =
+        math.max(
+            0,
+            result.capacity - result.stress
+        )
+
+    table.sort(
+        result.nodes,
+        function(a, b)
+            local ar = 0
+            local br = 0
+
+            if a.capacity > 0 then
+                ar = a.stress / a.capacity
+            end
+
+            if b.capacity > 0 then
+                br = b.stress / b.capacity
+            end
+
+            return ar > br
+        end
+    )
+
+    return result
+end
+
+--------------------------------------------------
+-- COMPOSITION
 --------------------------------------------------
 
 local function drawComposition(data, x, y, width)
@@ -348,16 +447,16 @@ local function drawComposition(data, x, y, width)
     local currentX = x
     local remaining = width
 
-    for index, entry in ipairs(CATEGORY_ORDER) do
-        local name = entry[1]
+    for i, entry in ipairs(CATEGORY_ORDER) do
+        local category = entry[1]
         local color = entry[2]
 
         local count =
-            data.categories[name] or 0
+            data.categories[category] or 0
 
         local amount
 
-        if index == #CATEGORY_ORDER then
+        if i == #CATEGORY_ORDER then
             amount = remaining
         else
             amount =
@@ -434,13 +533,15 @@ local function drawGraph(x, y, width, height)
             #history - width + 1
         )
 
-    local column = 0
+    local values = {}
 
     for i = start, #history do
-        column = column + 1
+        table.insert(values, history[i])
+    end
 
+    for column, value in ipairs(values) do
         local ratio =
-            (history[i] - minimum)
+            (value - minimum)
             / range
 
         local graphHeight =
@@ -449,25 +550,78 @@ local function drawGraph(x, y, width, height)
             ) + 1
 
         for row = 0, graphHeight - 1 do
+            local py =
+                y + height - 1 - row
+
             writeAt(
                 x + column - 1,
-                y + height - 1 - row,
+                py,
                 " ",
                 colors.white,
                 colors.green
             )
         end
+
+        local topY =
+            y + height - graphHeight
+
+        writeAt(
+            x + column - 1,
+            topY,
+            "-",
+            colors.lime,
+            colors.green
+        )
     end
 end
 
 --------------------------------------------------
--- DRAW DASHBOARD
+-- FULL ETA
+--------------------------------------------------
+
+local function fullETA(data)
+    if data.slotsPerMinute <= 0 then
+        return nil
+    end
+
+    local remaining =
+        data.totalSlots - data.usedSlots
+
+    if remaining <= 0 then
+        return "FULL"
+    end
+
+    local minutes =
+        remaining / data.slotsPerMinute
+
+    if minutes > 60 * 24 * 30 then
+        return nil
+    end
+
+    if minutes >= 60 then
+        local hours =
+            math.floor(minutes / 60)
+
+        local mins =
+            math.floor(minutes % 60)
+
+        return hours .. "h " .. mins .. "m"
+    end
+
+    return math.floor(minutes) .. "m"
+end
+
+--------------------------------------------------
+-- DRAW
 --------------------------------------------------
 
 local function draw()
-    local data = combine()
+    removeExpired()
 
-    sampleHistory(data.usedSlots)
+    local storage = combineStorage()
+    local stress = combineStress()
+
+    sampleHistory(storage.usedSlots)
 
     monitor.setBackgroundColor(colors.black)
     monitor.clear()
@@ -486,26 +640,26 @@ local function draw()
     )
 
     writeAt(
-        19,
+        18,
         1,
-        data.activeNodes
-            .. " nodes",
+        storage.activeNodes
+            .. " storage",
         colors.gray
     )
 
     writeAt(
         30,
         1,
-        data.inventories
-            .. " inventories",
+        stress.activeNodes
+            .. " stress",
         colors.gray
     )
 
     writeAt(
-        48,
+        41,
         1,
-        data.itemTypes
-            .. " item types",
+        storage.inventories
+            .. " inventories",
         colors.gray
     )
 
@@ -522,68 +676,70 @@ local function draw()
         colors.gray
     )
 
+    horizontalLine(2, colors.gray)
+
     --------------------------------------------------
-    -- CAPACITY
+    -- STORAGE SUMMARY
     --------------------------------------------------
 
-    local ratio = 0
+    local storageRatio = 0
 
-    if data.totalSlots > 0 then
-        ratio =
-            data.usedSlots
-            / data.totalSlots
+    if storage.totalSlots > 0 then
+        storageRatio =
+            storage.usedSlots
+            / storage.totalSlots
     end
 
-    local mainColor =
-        usageColor(ratio)
-
-    writeAt(
-        2,
-        3,
-        math.floor(ratio * 100)
-            .. "%",
-        mainColor
-    )
+    local storageColor =
+        usageColor(storageRatio)
 
     writeAt(
         2,
         4,
+        math.floor(storageRatio * 100)
+            .. "%",
+        storageColor
+    )
+
+    writeAt(
+        2,
+        5,
         "FULL",
         colors.gray
     )
 
     writeAt(
         11,
-        3,
-        comma(data.usedSlots)
+        4,
+        comma(storage.usedSlots)
             .. " / "
-            .. comma(data.totalSlots)
+            .. comma(storage.totalSlots)
             .. " slots used",
         colors.white
     )
 
     bar(
         11,
-        4,
-        w - 13,
-        ratio,
-        mainColor
+        5,
+        math.max(12, math.floor(w * 0.55)),
+        storageRatio,
+        storageColor
     )
 
     writeAt(
         11,
-        5,
-        short(data.totalItems)
+        6,
+        short(storage.totalItems)
             .. " items",
         colors.lightGray
     )
 
     local itemRate =
-        data.itemsPerMinute or 0
+        storage.itemsPerMinute or 0
 
     writeAt(
-        28,
-        5,
+        26,
+        6,
         (itemRate >= 0 and "+" or "")
             .. short(itemRate)
             .. " items/min",
@@ -592,69 +748,162 @@ local function draw()
             or colors.red
     )
 
+    local slotRate =
+        storage.slotsPerMinute or 0
+
+    writeAt(
+        44,
+        6,
+        (slotRate >= 0 and "+" or "")
+            .. short(slotRate)
+            .. " slots/min",
+        slotRate >= 0
+            and colors.lime
+            or colors.red
+    )
+
+    local eta =
+        fullETA(storage)
+
+    if eta then
+        writeAt(
+            11,
+            7,
+            "full in " .. eta,
+            colors.lightGray
+        )
+    end
+
+    --------------------------------------------------
+    -- STRESS SUMMARY
+    --------------------------------------------------
+
+    local stressX =
+        math.max(
+            60,
+            math.floor(w * 0.72)
+        )
+
+    local stressRatio = 0
+
+    if stress.capacity > 0 then
+        stressRatio =
+            stress.stress
+            / stress.capacity
+    end
+
+    local stressColor =
+        usageColor(stressRatio)
+
+    writeAt(
+        stressX,
+        3,
+        "STRESS",
+        colors.gray
+    )
+
+    writeAt(
+        stressX,
+        4,
+        math.floor(stressRatio * 100)
+            .. "%",
+        stressColor
+    )
+
+    bar(
+        stressX + 7,
+        4,
+        math.max(
+            6,
+            w - stressX - 8
+        ),
+        stressRatio,
+        stressColor
+    )
+
+    writeAt(
+        stressX,
+        5,
+        short(stress.stress)
+            .. " / "
+            .. short(stress.capacity)
+            .. " SU",
+        colors.white
+    )
+
+    writeAt(
+        stressX,
+        6,
+        short(stress.available)
+            .. " SU available",
+        colors.lightGray
+    )
+
     --------------------------------------------------
     -- COMPOSITION
     --------------------------------------------------
 
     writeAt(
         2,
-        7,
+        9,
         "COMPOSITION",
         colors.gray
     )
 
     drawComposition(
-        data,
+        storage,
         2,
-        8,
+        10,
         w - 3
     )
 
-    local lx = 2
-    local ly = 9
+    local legendX = 2
+    local legendY = 11
 
     for _, entry in ipairs(CATEGORY_ORDER) do
         local name = entry[1]
+        local color = entry[2]
 
         local count =
-            data.categories[name]
-            or 0
+            storage.categories[name] or 0
 
         local percent = 0
 
-        if data.totalItems > 0 then
+        if storage.totalItems > 0 then
             percent =
                 math.floor(
                     count
-                    / data.totalItems
+                    / storage.totalItems
                     * 100
                 )
         end
 
         writeAt(
-            lx,
-            ly,
+            legendX,
+            legendY,
             name
                 .. " "
                 .. percent
                 .. "%",
-            entry[2]
+            color
         )
 
-        lx = lx + 15
+        legendX =
+            legendX + 15
 
-        if lx + 14 > w then
-            lx = 2
-            ly = ly + 1
+        if legendX + 14 > w then
+            legendX = 2
+            legendY =
+                legendY + 1
         end
     end
 
     --------------------------------------------------
-    -- HISTORY
+    -- HISTORY GRAPH
     --------------------------------------------------
 
     local graphTitleY =
-        ly + 2
+        legendY + 2
 
     writeAt(
         2,
@@ -663,22 +912,42 @@ local function draw()
         colors.gray
     )
 
+    local graphValue =
+        comma(storage.usedSlots)
+        .. " / "
+        .. comma(storage.totalSlots)
+
+    writeAt(
+        w - #graphValue - 1,
+        graphTitleY,
+        graphValue,
+        colors.gray
+    )
+
+    local graphY =
+        graphTitleY + 1
+
+    local graphHeight = 5
+
     drawGraph(
         2,
-        graphTitleY + 1,
+        graphY,
         w - 3,
-        4
+        graphHeight
     )
 
     --------------------------------------------------
-    -- LOWER SECTION
+    -- LOWER PANELS
     --------------------------------------------------
 
     local bottomY =
-        graphTitleY + 6
+        graphY + graphHeight + 1
 
-    local rightX =
-        math.floor(w * 0.56)
+    local storageX =
+        math.floor(w * 0.42)
+
+    local stressListX =
+        math.floor(w * 0.72)
 
     --------------------------------------------------
     -- TOP CONSUMERS
@@ -691,34 +960,34 @@ local function draw()
         colors.gray
     )
 
-    for i, item in ipairs(data.topItems) do
+    for i, item in ipairs(storage.topItems) do
         local y =
             bottomY + i
 
-        if y >= h then
+        if y >= h - 2 then
             break
         end
 
         local name =
             cleanName(item.name)
 
-        if #name > 18 then
+        if #name > 17 then
             name =
-                name:sub(1, 18)
+                name:sub(1, 17)
         end
 
         writeAt(
             2,
             y,
             string.format(
-                "%-18s",
+                "%-17s",
                 name
             ),
             colors.white
         )
 
         writeAt(
-            21,
+            20,
             y,
             string.format(
                 "%7s",
@@ -727,20 +996,20 @@ local function draw()
             colors.lightGray
         )
 
-        local topCount =
-            data.topItems[1]
-            and data.topItems[1].count
+        local highest =
+            storage.topItems[1]
+            and storage.topItems[1].count
             or 1
 
         bar(
-            29,
+            28,
             y,
             math.max(
-                4,
-                rightX - 31
+                5,
+                storageX - 30
             ),
             item.count
-                / math.max(1, topCount),
+                / math.max(1, highest),
             colors.orange
         )
     end
@@ -750,26 +1019,18 @@ local function draw()
     --------------------------------------------------
 
     writeAt(
-        rightX,
+        storageX,
         bottomY,
         "STORAGE NETWORKS",
         colors.gray
     )
 
-    for i, node in ipairs(data.nodes) do
+    for i, node in ipairs(storage.nodes) do
         local y =
             bottomY + i
 
-        if y >= h then
+        if y >= h - 2 then
             break
-        end
-
-        local name =
-            tostring(node.name)
-
-        if #name > 16 then
-            name =
-                name:sub(1, 16)
         end
 
         local nodeRatio = 0
@@ -780,49 +1041,225 @@ local function draw()
                 / node.totalSlots
         end
 
+        local name =
+            tostring(node.name)
+
+        if #name > 14 then
+            name =
+                name:sub(1, 14)
+        end
+
         writeAt(
-            rightX,
+            storageX,
             y,
             string.format(
-                "%-16s",
+                "%-14s",
                 name
             ),
             colors.white
         )
 
         local bx =
-            rightX + 17
+            storageX + 15
+
+        local bw =
+            math.max(
+                4,
+                stressListX - bx - 5
+            )
 
         bar(
             bx,
             y,
-            math.max(
-                5,
-                w - bx - 5
-            ),
+            bw,
             nodeRatio,
             usageColor(nodeRatio)
         )
 
         writeAt(
-            w - 3,
+            stressListX - 4,
             y,
-            math.floor(
-                nodeRatio * 100
-            ) .. "%",
-            colors.lightGray
+            math.floor(nodeRatio * 100)
+                .. "%",
+            nodeRatio >= 0.95
+                and colors.red
+                or colors.lightGray
         )
     end
 
     --------------------------------------------------
-    -- STATUS
+    -- STRESS NETWORKS
     --------------------------------------------------
 
-    if data.activeNodes == 0 then
+    writeAt(
+        stressListX,
+        bottomY,
+        "STRESS NETWORKS",
+        colors.gray
+    )
+
+    for i, node in ipairs(stress.nodes) do
+        local y =
+            bottomY + i
+
+        if y >= h - 2 then
+            break
+        end
+
+        local ratio = 0
+
+        if node.capacity > 0 then
+            ratio =
+                node.stress
+                / node.capacity
+        end
+
+        local name =
+            tostring(node.name)
+
+        if #name > 12 then
+            name =
+                name:sub(1, 12)
+        end
+
+        writeAt(
+            stressListX,
+            y,
+            string.format(
+                "%-12s",
+                name
+            ),
+            colors.white
+        )
+
+        local bx =
+            stressListX + 13
+
+        local bw =
+            math.max(
+                4,
+                w - bx - 5
+            )
+
+        bar(
+            bx,
+            y,
+            bw,
+            ratio,
+            usageColor(ratio)
+        )
+
+        writeAt(
+            w - 3,
+            y,
+            math.floor(ratio * 100)
+                .. "%",
+            ratio >= 0.95
+                and colors.red
+                or colors.lightGray
+        )
+    end
+
+    --------------------------------------------------
+    -- ALERTS
+    --------------------------------------------------
+
+    local alertY =
+        math.max(
+            bottomY + 8,
+            h - 2
+        )
+
+    if alertY < h then
+        local alert = nil
+        local alertColor =
+            colors.orange
+
+        for _, node in ipairs(storage.nodes) do
+            local r = 0
+
+            if node.totalSlots > 0 then
+                r =
+                    node.usedSlots
+                    / node.totalSlots
+            end
+
+            if r >= 0.95 then
+                alert =
+                    node.name
+                    .. " storage "
+                    .. math.floor(r * 100)
+                    .. "% full"
+
+                alertColor =
+                    colors.red
+
+                break
+
+            elseif r >= 0.85
+                and not alert
+            then
+                alert =
+                    node.name
+                    .. " storage "
+                    .. math.floor(r * 100)
+                    .. "% full"
+            end
+        end
+
+        for _, node in ipairs(stress.nodes) do
+            local r = 0
+
+            if node.capacity > 0 then
+                r =
+                    node.stress
+                    / node.capacity
+            end
+
+            if r >= 0.95 then
+                alert =
+                    node.name
+                    .. " stress "
+                    .. math.floor(r * 100)
+                    .. "%"
+
+                alertColor =
+                    colors.red
+
+                break
+
+            elseif r >= 0.85
+                and not alert
+            then
+                alert =
+                    node.name
+                    .. " stress "
+                    .. math.floor(r * 100)
+                    .. "%"
+            end
+        end
+
+        if alert then
+            writeAt(
+                2,
+                alertY,
+                "ALERT: " .. alert,
+                alertColor
+            )
+        end
+    end
+
+    --------------------------------------------------
+    -- FOOTER
+    --------------------------------------------------
+
+    if storage.activeNodes == 0
+        and stress.activeNodes == 0
+    then
         writeAt(
             2,
             h,
-            "WAITING FOR STORAGE NODES...",
+            "WAITING FOR NODES...",
             colors.red
         )
     else
@@ -833,18 +1270,23 @@ local function draw()
             colors.green
         )
 
+        local status =
+            storage.activeNodes
+            .. " storage / "
+            .. stress.activeNodes
+            .. " stress"
+
         writeAt(
-            w - 15,
+            w - #status - 1,
             h,
-            data.activeNodes
-                .. " nodes online",
+            status,
             colors.gray
         )
     end
 end
 
 --------------------------------------------------
--- WIRELESS RECEIVER
+-- RECEIVE ALL WIRELESS DATA
 --------------------------------------------------
 
 local function receiveLoop()
@@ -852,20 +1294,32 @@ local function receiveLoop()
         local _, sender, message, protocol =
             os.pullEvent("rednet_message")
 
-        if protocol == PROTOCOL
-            and type(message) == "table"
-            and message.nodeId
-        then
-            nodes[message.nodeId] = {
-                data = message,
-                lastSeen = os.epoch("utc")
-            }
+        if type(message) == "table" then
+
+            if protocol == STORAGE_PROTOCOL
+                and message.nodeId
+            then
+
+                storageNodes[message.nodeId] = {
+                    data = message,
+                    lastSeen = os.epoch("utc")
+                }
+
+            elseif protocol == STRESS_PROTOCOL
+                and message.nodeId
+            then
+
+                stressNodes[message.nodeId] = {
+                    data = message,
+                    lastSeen = os.epoch("utc")
+                }
+            end
         end
     end
 end
 
 --------------------------------------------------
--- DISPLAY REFRESH
+-- REFRESH SCREEN INDEPENDENTLY
 --------------------------------------------------
 
 local function refreshLoop()
