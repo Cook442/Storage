@@ -1,76 +1,58 @@
 -- ============================================================
--- COOK'S STORAGE - SERVER
--- Computer #0
--- Reads ALL connected inventories
--- Sends directly to Computer #1
+-- COOK'S STORAGE - UNIVERSAL STORAGE NODE
+-- Install this SAME file on every storage computer.
 -- ============================================================
 
-local WIRELESS_MODEM = "front"
 local DISPLAY_ID = 1
-local PROTOCOL = "realcraft_storage"
-
+local PROTOCOL = "cooks_storage_v2"
 local REFRESH_SECONDS = 5
-local CAPACITY_REFRESH_SECONDS = 60
 
-if not rednet.isOpen(WIRELESS_MODEM) then
-    rednet.open(WIRELESS_MODEM)
+--------------------------------------------------
+-- FIND WIRELESS MODEM AUTOMATICALLY
+--------------------------------------------------
+
+local wirelessModem = nil
+
+for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.hasType(name, "modem") then
+        local modem = peripheral.wrap(name)
+
+        if modem and modem.isWireless and modem.isWireless() then
+            wirelessModem = name
+            break
+        end
+    end
 end
 
-local previousTotalItems = nil
-local previousUsedSlots = nil
-local previousTime = os.epoch("utc")
-
-local capacityCache = {}
-local lastCapacityRefresh = 0
-
--- ------------------------------------------------------------
--- Helpers
--- ------------------------------------------------------------
-
-local function isInventory(name)
-    return peripheral.hasType(name, "inventory")
+if not wirelessModem then
+    error("No wireless modem found!")
 end
 
-local function isIgnored(name)
-    -- Do not treat direct computer sides as storage if they
-    -- somehow expose something unexpected.
-    return false
+if not rednet.isOpen(wirelessModem) then
+    rednet.open(wirelessModem)
 end
 
-local function friendlyStorageName(name)
-    local vaultNumber = name:match("create:item_vault_(%d+)")
+--------------------------------------------------
+-- NODE INFO
+--------------------------------------------------
 
-    if vaultNumber then
-        return "Vault " .. tostring(tonumber(vaultNumber) + 1)
-    end
+local COMPUTER_ID = os.getComputerID()
+local NODE_NAME = os.getComputerLabel()
 
-    local ioNumber = name:match("sophisticatedstorage:storage_io_(%d+)")
-
-    if ioNumber then
-        return "Soph Storage " .. tostring(tonumber(ioNumber) + 1)
-    end
-
-    if name:find("sophisticatedstorage:storage_io") then
-        return "Soph Storage"
-    end
-
-    local short = name:match(":(.+)$") or name
-    short = short:gsub("_", " ")
-
-    if #short > 20 then
-        short = short:sub(1, 20)
-    end
-
-    return short
+if not NODE_NAME or NODE_NAME == "" then
+    NODE_NAME = "Storage #" .. COMPUTER_ID
 end
 
-local function categoryFor(itemName)
-    local namespace, id = itemName:match("^([^:]+):(.+)$")
+--------------------------------------------------
+-- CATEGORY DETECTION
+--------------------------------------------------
+
+local function categoryFor(name)
+    local namespace, id = name:match("^([^:]+):(.+)$")
 
     namespace = namespace or "minecraft"
-    id = id or itemName
+    id = id or name
 
-    -- CREATE + Create addons
     if namespace == "create"
         or namespace:find("^create")
         or namespace:find("railway")
@@ -79,21 +61,43 @@ local function categoryFor(itemName)
         return "Create"
     end
 
-    -- FOOD
+    if id:find("log")
+        or id:find("wood")
+        or id:find("planks")
+        or id:find("sapling")
+        or id:find("leaves")
+        or id:find("bamboo")
+        or id:find("stem")
+        or id:find("hyphae")
+    then
+        return "Wood"
+    end
+
+    if id:find("ore")
+        or id:find("ingot")
+        or id:find("nugget")
+        or id:find("diamond")
+        or id:find("emerald")
+        or id:find("coal")
+        or id:find("quartz")
+        or id:find("raw_")
+        or id:find("gem")
+        or id:find("crystal")
+    then
+        return "Ores/Gems"
+    end
+
     if id:find("apple")
         or id:find("bread")
         or id:find("beef")
         or id:find("pork")
         or id:find("chicken")
         or id:find("mutton")
-        or id:find("rabbit")
         or id:find("fish")
         or id:find("salmon")
         or id:find("cod")
         or id:find("potato")
         or id:find("carrot")
-        or id:find("beetroot")
-        or id:find("melon")
         or id:find("berry")
         or id:find("tomato")
         or id:find("cabbage")
@@ -107,36 +111,6 @@ local function categoryFor(itemName)
         return "Food"
     end
 
-    -- WOOD
-    if id:find("log")
-        or id:find("wood")
-        or id:find("planks")
-        or id:find("sapling")
-        or id:find("leaves")
-        or id:find("stem")
-        or id:find("hyphae")
-        or id:find("bamboo")
-    then
-        return "Wood"
-    end
-
-    -- ORES / GEMS
-    if id:find("ore")
-        or id:find("ingot")
-        or id:find("nugget")
-        or id:find("diamond")
-        or id:find("emerald")
-        or id:find("quartz")
-        or id:find("coal")
-        or id:find("raw_")
-        or id:find("gem")
-        or id:find("crystal")
-        or id:find("dust")
-    then
-        return "Ores/Gems"
-    end
-
-    -- ARMOR
     if id:find("helmet")
         or id:find("chestplate")
         or id:find("leggings")
@@ -145,18 +119,16 @@ local function categoryFor(itemName)
         return "Armor"
     end
 
-    -- TOOLS
     if id:find("pickaxe")
         or id:find("shovel")
         or id:find("hoe")
         or id:find("shears")
-        or id:find("fishing_rod")
         or id:find("wrench")
+        or id:find("axe")
     then
         return "Tools"
     end
 
-    -- WEAPONS
     if id:find("sword")
         or id:find("bow")
         or id:find("crossbow")
@@ -166,25 +138,23 @@ local function categoryFor(itemName)
         return "Weapons"
     end
 
-    -- POTIONS
     if id:find("potion")
         or id:find("elixir")
     then
         return "Potions"
     end
 
-    -- COMMON BLOCK NAMES
     if id:find("stone")
         or id:find("dirt")
         or id:find("sand")
         or id:find("gravel")
         or id:find("brick")
-        or id:find("concrete")
-        or id:find("terracotta")
         or id:find("glass")
         or id:find("deepslate")
         or id:find("tuff")
         or id:find("cobble")
+        or id:find("concrete")
+        or id:find("terracotta")
     then
         return "Blocks"
     end
@@ -192,141 +162,81 @@ local function categoryFor(itemName)
     return "Misc"
 end
 
-local function getCapacity(name, inv, forceRefresh)
-    if not forceRefresh and capacityCache[name] then
-        return capacityCache[name]
-    end
+--------------------------------------------------
+-- STORAGE SCAN
+--------------------------------------------------
 
-    local okSize, size = pcall(inv.size)
-
-    if not okSize or not size then
-        return 0, 0
-    end
-
-    local itemCapacity = 0
-
-    for slot = 1, size do
-        local okLimit, limit = pcall(inv.getItemLimit, slot)
-
-        if okLimit and limit then
-            itemCapacity = itemCapacity + limit
-        else
-            itemCapacity = itemCapacity + 64
-        end
-    end
-
-    capacityCache[name] = {
-        slots = size,
-        items = itemCapacity
-    }
-
-    return capacityCache[name]
-end
-
-local function sortTopItems(itemTotals)
-    local result = {}
-
-    for name, count in pairs(itemTotals) do
-        table.insert(result, {
-            name = name,
-            count = count
-        })
-    end
-
-    table.sort(result, function(a, b)
-        return a.count > b.count
-    end)
-
-    while #result > 10 do
-        table.remove(result)
-    end
-
-    return result
-end
-
--- ------------------------------------------------------------
--- Scanner
--- ------------------------------------------------------------
+local previousItems = nil
+local previousSlots = nil
+local previousTime = os.epoch("utc")
 
 local function scanStorage()
-    local currentTime = os.epoch("utc")
-
-    local forceCapacityRefresh =
-        currentTime - lastCapacityRefresh >=
-        (CAPACITY_REFRESH_SECONDS * 1000)
-
-    if forceCapacityRefresh then
-        lastCapacityRefresh = currentTime
-    end
 
     local data = {
-        totalItems = 0,
-        usedSlots = 0,
-        totalSlots = 0,
+        nodeId = COMPUTER_ID,
+        nodeName = NODE_NAME,
 
-        itemCapacity = 0,
-
-        itemTypes = 0,
         inventories = 0,
+
+        totalSlots = 0,
+        usedSlots = 0,
+
+        totalItems = 0,
+        itemTypes = 0,
 
         itemsPerMinute = 0,
         slotsPerMinute = 0,
 
-        topItems = {},
-        categories = {},
-        storageUnits = {},
+        categories = {
+            ["Wood"] = 0,
+            ["Ores/Gems"] = 0,
+            ["Tools"] = 0,
+            ["Misc"] = 0,
+            ["Armor"] = 0,
+            ["Potions"] = 0,
+            ["Blocks"] = 0,
+            ["Create"] = 0,
+            ["Food"] = 0,
+            ["Weapons"] = 0
+        },
 
-        timestamp = currentTime
+        topItems = {}
     }
 
     local itemTotals = {}
 
-    local categoryTotals = {
-        ["Wood"] = 0,
-        ["Ores/Gems"] = 0,
-        ["Tools"] = 0,
-        ["Misc"] = 0,
-        ["Armor"] = 0,
-        ["Potions"] = 0,
-        ["Blocks"] = 0,
-        ["Create"] = 0,
-        ["Food"] = 0,
-        ["Weapons"] = 0
-    }
+    --------------------------------------------------
+    -- FIND EVERY LOCAL INVENTORY
+    --------------------------------------------------
 
-    local names = peripheral.getNames()
+    for _, name in ipairs(peripheral.getNames()) do
 
-    for _, name in ipairs(names) do
-        if isInventory(name) and not isIgnored(name) then
+        if peripheral.hasType(name, "inventory") then
+
             local inv = peripheral.wrap(name)
 
             if inv then
+
                 local okList, contents = pcall(inv.list)
+                local okSize, size = pcall(inv.size)
 
-                if okList and contents then
-                    data.inventories = data.inventories + 1
+                if okList and okSize and contents and size then
 
-                    local capacity =
-                        getCapacity(name, inv, forceCapacityRefresh)
-
-                    local unitUsedSlots = 0
-                    local unitItems = 0
+                    data.inventories =
+                        data.inventories + 1
 
                     data.totalSlots =
-                        data.totalSlots + (capacity.slots or 0)
-
-                    data.itemCapacity =
-                        data.itemCapacity + (capacity.items or 0)
+                        data.totalSlots + size
 
                     for _, item in pairs(contents) do
-                        unitUsedSlots = unitUsedSlots + 1
-                        unitItems = unitItems + item.count
 
-                        data.usedSlots = data.usedSlots + 1
+                        data.usedSlots =
+                            data.usedSlots + 1
+
                         data.totalItems =
                             data.totalItems + item.count
 
-                        if itemTotals[item.name] == nil then
+                        if not itemTotals[item.name] then
                             itemTotals[item.name] = 0
                             data.itemTypes =
                                 data.itemTypes + 1
@@ -338,88 +248,91 @@ local function scanStorage()
                         local category =
                             categoryFor(item.name)
 
-                        categoryTotals[category] =
-                            categoryTotals[category]
+                        data.categories[category] =
+                            data.categories[category]
                             + item.count
                     end
-
-                    table.insert(data.storageUnits, {
-                        name = friendlyStorageName(name),
-                        peripheral = name,
-                        usedSlots = unitUsedSlots,
-                        totalSlots = capacity.slots or 0,
-                        items = unitItems
-                    })
                 end
             end
         end
     end
 
-    -- Calculate rate
-    if previousTotalItems ~= nil then
-        local elapsedMinutes =
-            (currentTime - previousTime) / 60000
+    --------------------------------------------------
+    -- TOP ITEMS
+    --------------------------------------------------
 
-        if elapsedMinutes > 0 then
+    local sorted = {}
+
+    for name, count in pairs(itemTotals) do
+        table.insert(sorted, {
+            name = name,
+            count = count
+        })
+    end
+
+    table.sort(sorted, function(a, b)
+        return a.count > b.count
+    end)
+
+    for i = 1, math.min(50, #sorted) do
+        data.topItems[i] = sorted[i]
+    end
+
+    --------------------------------------------------
+    -- RATES
+    --------------------------------------------------
+
+    local now = os.epoch("utc")
+
+    if previousItems ~= nil then
+
+        local minutes =
+            (now - previousTime) / 60000
+
+        if minutes > 0 then
+
             data.itemsPerMinute =
                 math.floor(
-                    (data.totalItems - previousTotalItems)
-                    / elapsedMinutes
+                    (data.totalItems - previousItems)
+                    / minutes
                 )
 
             data.slotsPerMinute =
                 math.floor(
-                    (data.usedSlots - previousUsedSlots)
-                    / elapsedMinutes
+                    (data.usedSlots - previousSlots)
+                    / minutes
                 )
         end
     end
 
-    previousTotalItems = data.totalItems
-    previousUsedSlots = data.usedSlots
-    previousTime = currentTime
-
-    data.topItems = sortTopItems(itemTotals)
-    data.categories = categoryTotals
-
-    table.sort(data.storageUnits, function(a, b)
-        local ap =
-            a.totalSlots > 0
-            and a.usedSlots / a.totalSlots
-            or 0
-
-        local bp =
-            b.totalSlots > 0
-            and b.usedSlots / b.totalSlots
-            or 0
-
-        return ap > bp
-    end)
+    previousItems = data.totalItems
+    previousSlots = data.usedSlots
+    previousTime = now
 
     return data
 end
 
--- ------------------------------------------------------------
--- Startup
--- ------------------------------------------------------------
+--------------------------------------------------
+-- SCREEN
+--------------------------------------------------
 
 term.clear()
 term.setCursorPos(1, 1)
 
-print("COOK'S STORAGE SERVER")
-print("----------------------")
-print("Computer: #" .. os.getComputerID())
-print("Display:  #1")
-print("Wireless: " .. WIRELESS_MODEM)
-print("")
-print("Scanning connected inventories...")
+print("COOK'S STORAGE NODE")
+print("--------------------")
+print("Name: " .. NODE_NAME)
+print("Computer #" .. COMPUTER_ID)
+print("Wireless: " .. wirelessModem)
+print("Display: #1")
 print("")
 
--- ------------------------------------------------------------
--- Loop
--- ------------------------------------------------------------
+--------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------
 
 while true do
+
     local data = scanStorage()
 
     local sent =
@@ -430,6 +343,7 @@ while true do
         )
 
     term.setCursorPos(1, 8)
+
     term.clearLine()
     print("Inventories: " .. data.inventories)
 
@@ -447,9 +361,9 @@ while true do
     term.clearLine()
 
     if sent then
-        print("Display #1: ONLINE ")
+        print("COOK'S STORAGE: ONLINE ")
     else
-        print("Display #1: OFFLINE")
+        print("COOK'S STORAGE: OFFLINE")
     end
 
     sleep(REFRESH_SECONDS)
