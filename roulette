@@ -1,8 +1,8 @@
 -- ============================================================
--- COOK'S ROULETTE V3
--- Clean touchscreen roulette UI
--- Designed for 29x33 monitor
--- European wheel 0-36
+-- COOK'S ROULETTE V4
+-- CC:Tweaked Touchscreen Roulette
+-- Designed for 57x67 Advanced Monitor
+-- European wheel: 0-36
 -- Fictional credits only
 -- ============================================================
 
@@ -22,10 +22,10 @@ local W, H = monitor.getSize()
 
 monitor.setPaletteColor(colors.black,  0x080808)
 monitor.setPaletteColor(colors.red,    0xB71C1C)
-monitor.setPaletteColor(colors.green,  0x0B6E3E)
+monitor.setPaletteColor(colors.green,  0x0A6A3E)
 monitor.setPaletteColor(colors.yellow, 0xFFD54F)
-monitor.setPaletteColor(colors.gray,   0x3B3B3B)
-monitor.setPaletteColor(colors.brown,  0x5C3317)
+monitor.setPaletteColor(colors.gray,   0x3C3C3C)
+monitor.setPaletteColor(colors.brown,  0x5A3217)
 monitor.setPaletteColor(colors.orange, 0xF57C00)
 
 --------------------------------------------------
@@ -38,12 +38,9 @@ local betAmount = 25
 local selectedBet = nil
 local selectedLabel = "NO BET"
 
-local page = "main"
-
 local spinning = false
-
 local resultNumber = nil
-local message = "PLACE A BET"
+local message = "SELECT A BET"
 
 --------------------------------------------------
 -- EUROPEAN WHEEL
@@ -55,30 +52,30 @@ local wheel = {
     28,12,35,3,26
 }
 
-local redNumbers = {
+local reds = {
     [1]=true,[3]=true,[5]=true,[7]=true,[9]=true,
     [12]=true,[14]=true,[16]=true,[18]=true,
     [19]=true,[21]=true,[23]=true,[25]=true,[27]=true,
     [30]=true,[32]=true,[34]=true,[36]=true
 }
 
-local function numberColorName(n)
-    if n == 0 then
-        return "GREEN"
-    elseif redNumbers[n] then
-        return "RED"
-    else
-        return "BLACK"
-    end
-end
-
 local function numberColor(n)
     if n == 0 then
         return colors.green
-    elseif redNumbers[n] then
+    elseif reds[n] then
         return colors.red
     else
         return colors.black
+    end
+end
+
+local function numberColorName(n)
+    if n == 0 then
+        return "GREEN"
+    elseif reds[n] then
+        return "RED"
+    else
+        return "BLACK"
     end
 end
 
@@ -189,158 +186,39 @@ local function drawButton(b, selected)
 end
 
 --------------------------------------------------
--- MAIN PAGE BUTTONS
+-- LARGE WHEEL LAYOUT
 --------------------------------------------------
 
-addButton(
-    "placeBet",
-    3, 25,
-    12, 27,
-    "BET",
-    colors.blue
-)
+local wheelCX = math.floor(W / 2)
+local wheelCY = 21
 
-addButton(
-    "spin",
-    17, 25,
-    27, 27,
-    "SPIN",
-    colors.red
-)
-
-addButton(
-    "betDown",
-    3, 29,
-    8, 31,
-    "-",
-    colors.gray
-)
-
-addButton(
-    "betUp",
-    22, 29,
-    27, 31,
-    "+",
-    colors.gray
-)
-
---------------------------------------------------
--- BET PAGE BUTTONS
---------------------------------------------------
-
-addButton(
-    "red",
-    2, 22,
-    8, 23,
-    "RED",
-    colors.red,
-    {type="color", value="RED"}
-)
-
-addButton(
-    "black",
-    10, 22,
-    17, 23,
-    "BLACK",
-    colors.black,
-    {type="color", value="BLACK"}
-)
-
-addButton(
-    "odd",
-    19, 22,
-    27, 23,
-    "ODD",
-    colors.gray,
-    {type="parity", value="ODD"}
-)
-
-addButton(
-    "even",
-    2, 24,
-    8, 25,
-    "EVEN",
-    colors.gray,
-    {type="parity", value="EVEN"}
-)
-
-addButton(
-    "low",
-    10, 24,
-    17, 25,
-    "1-18",
-    colors.gray,
-    {type="range", value="LOW"}
-)
-
-addButton(
-    "high",
-    19, 24,
-    27, 25,
-    "19-36",
-    colors.gray,
-    {type="range", value="HIGH"}
-)
-
-addButton(
-    "d1",
-    2, 27,
-    9, 28,
-    "1-12",
-    colors.gray,
-    {type="dozen", value=1}
-)
-
-addButton(
-    "d2",
-    11, 27,
-    18, 28,
-    "13-24",
-    colors.gray,
-    {type="dozen", value=2}
-)
-
-addButton(
-    "d3",
-    20, 27,
-    28, 28,
-    "25-36",
-    colors.gray,
-    {type="dozen", value=3}
-)
-
-addButton(
-    "confirm",
-    9, 30,
-    21, 32,
-    "CONFIRM",
-    colors.green
-)
-
---------------------------------------------------
--- WHEEL VISUAL
---------------------------------------------------
-
-local wheelCenterX = 15
-local wheelCenterY = 12
-
-local ringPositions = {
-    { 0,-7},
-    { 4,-6},
-    { 7,-4},
-    { 8, 0},
-    { 7, 4},
-    { 4, 6},
-    { 0, 7},
-    {-4, 6},
-    {-7, 4},
-    {-8, 0},
-    {-7,-4},
-    {-4,-6}
+local wheelPositions = {
+    {  0,-15},
+    {  5,-14},
+    { 10,-12},
+    { 14, -9},
+    { 17, -5},
+    { 18,  0},
+    { 17,  5},
+    { 14,  9},
+    { 10, 12},
+    {  5, 14},
+    {  0, 15},
+    { -5, 14},
+    {-10, 12},
+    {-14,  9},
+    {-17,  5},
+    {-18,  0},
+    {-17, -5},
+    {-14, -9},
+    {-10,-12},
+    { -5,-14}
 }
 
 local wheelIndex = 1
 local ballIndex = 1
+
+local winningIndex = nil
 
 local function wrapWheel(i)
     while i < 1 do
@@ -356,62 +234,88 @@ end
 
 local function wrapRing(i)
     while i < 1 do
-        i = i + #ringPositions
+        i = i + #wheelPositions
     end
 
-    while i > #ringPositions do
-        i = i - #ringPositions
+    while i > #wheelPositions do
+        i = i - #wheelPositions
     end
 
     return i
 end
 
+--------------------------------------------------
+-- DRAW LARGE ROULETTE WHEEL
+--------------------------------------------------
+
 local function drawWheel()
 
     --------------------------------------------------
-    -- OUTER WOOD
+    -- OUTER CABINET
     --------------------------------------------------
 
-    for y = 5, 19 do
+    for y = 5, 37 do
         fill(
-            4,
+            5,
             y,
-            23,
+            W - 9,
             colors.brown
         )
     end
 
     --------------------------------------------------
-    -- INNER GREEN BOWL
+    -- INNER BOWL
     --------------------------------------------------
 
-    for y = 6, 18 do
+    for y = 7, 35 do
         fill(
-            5,
+            7,
             y,
-            21,
+            W - 13,
             colors.green
         )
     end
 
     --------------------------------------------------
-    -- DARK CENTER
+    -- INNER DARK RING
     --------------------------------------------------
 
-    for y = 9, 15 do
+    for y = 13, 29 do
         fill(
-            10,
+            15,
             y,
-            11,
+            W - 29,
             colors.black
         )
     end
 
     --------------------------------------------------
+    -- GOLD CENTER
+    --------------------------------------------------
+
+    for y = wheelCY - 2, wheelCY + 2 do
+        fill(
+            wheelCX - 3,
+            y,
+            7,
+            colors.orange
+        )
+    end
+
+    writeAt(
+        wheelCX - 1,
+        wheelCY,
+        "O",
+        colors.yellow,
+        colors.orange
+    )
+
+    --------------------------------------------------
     -- NUMBER POCKETS
     --------------------------------------------------
 
-    for i, pos in ipairs(ringPositions) do
+    for i, pos in ipairs(wheelPositions) do
+
         local idx =
             wrapWheel(
                 wheelIndex + i - 1
@@ -421,78 +325,63 @@ local function drawWheel()
             wheel[idx]
 
         local x =
-            wheelCenterX + pos[1]
+            wheelCX + pos[1]
 
         local y =
-            wheelCenterY + pos[2]
-
-        local txt =
-            tostring(n)
+            wheelCY + pos[2]
 
         local bg =
             numberColor(n)
 
-        if #txt == 1 then
+        if winningIndex
+            and idx == winningIndex
+            and not spinning
+        then
+            bg = colors.yellow
+        end
+
+        local text =
+            tostring(n)
+
+        if #text == 1 then
             writeAt(
                 x,
                 y,
-                txt,
-                colors.white,
+                text,
+                winningIndex
+                    and idx == winningIndex
+                    and colors.black
+                    or colors.white,
                 bg
             )
         else
             writeAt(
                 x - 1,
                 y,
-                txt,
-                colors.white,
+                text,
+                winningIndex
+                    and idx == winningIndex
+                    and colors.black
+                    or colors.white,
                 bg
             )
         end
     end
 
     --------------------------------------------------
-    -- CENTER DECORATION
+    -- WHITE BALL
     --------------------------------------------------
 
-    writeAt(
-        wheelCenterX - 1,
-        wheelCenterY - 1,
-        "o",
-        colors.yellow,
-        colors.black
-    )
-
-    writeAt(
-        wheelCenterX + 1,
-        wheelCenterY,
-        "o",
-        colors.yellow,
-        colors.black
-    )
-
-    writeAt(
-        wheelCenterX - 1,
-        wheelCenterY + 1,
-        "o",
-        colors.yellow,
-        colors.black
-    )
-
-    --------------------------------------------------
-    -- BALL
-    --------------------------------------------------
-
-    local ballPos =
-        ringPositions[
+    local bp =
+        wheelPositions[
             wrapRing(ballIndex)
         ]
 
     local bx =
-        wheelCenterX + ballPos[1]
+        wheelCX + bp[1]
 
     local by =
-        wheelCenterY + ballPos[2]
+        wheelCY + bp[2]
 
     writeAt(
         bx,
@@ -518,7 +407,7 @@ local function drawHeader()
     writeAt(
         2,
         3,
-        "CR " .. credits,
+        "CREDITS " .. credits,
         colors.green
     )
 
@@ -534,137 +423,111 @@ local function drawHeader()
 end
 
 --------------------------------------------------
--- RESULT PANEL
+-- RESULT
 --------------------------------------------------
 
-local function drawResultPanel()
+local function drawResult()
 
     if spinning then
+
         centered(
-            21,
-            "SPINNING...",
+            39,
+            "BALL IN MOTION...",
             colors.yellow
         )
 
-        return
-    end
-
-    if resultNumber ~= nil then
-        local label =
-            tostring(resultNumber)
-            .. " "
-            .. numberColorName(resultNumber)
+    elseif resultNumber ~= nil then
 
         centered(
-            21,
-            label,
+            39,
+            "RESULT: "
+                .. resultNumber
+                .. " "
+                .. numberColorName(resultNumber),
             numberColor(resultNumber)
         )
+
     else
+
         centered(
-            21,
+            39,
             "READY",
             colors.gray
         )
     end
-end
-
---------------------------------------------------
--- MAIN PAGE
---------------------------------------------------
-
-local function drawMainPage()
-
-    clear()
-
-    drawHeader()
-    drawWheel()
-    drawResultPanel()
 
     centered(
-        23,
+        41,
         selectedLabel,
         colors.white
     )
-
-    drawButton(
-        buttons.placeBet,
-        false
-    )
-
-    drawButton(
-        buttons.spin,
-        false
-    )
-
-    writeAt(
-        11,
-        30,
-        "BET " .. betAmount,
-        colors.white
-    )
-
-    drawButton(
-        buttons.betDown,
-        false
-    )
-
-    drawButton(
-        buttons.betUp,
-        false
-    )
-
-    centered(
-        33,
-        message,
-        message:find("WIN")
-            and colors.green
-            or message:find("LOSE")
-            and colors.red
-            or colors.gray
-    )
 end
 
 --------------------------------------------------
--- NUMBER BETTING GRID
+-- NUMBER BETTING TABLE
 --------------------------------------------------
 
 local numberCells = {}
 
-local function setupNumberCells()
+local GRID_START_X = 2
+local GRID_START_Y = 44
+
+local CELL_W = 4
+local CELL_H = 2
+
+local function setupNumberGrid()
 
     numberCells = {}
 
-    local startY = 5
+    --------------------------------------------------
+    -- ZERO
+    --------------------------------------------------
 
-    for n = 0, 36 do
+    table.insert(
+        numberCells,
+        {
+            number = 0,
+            x1 = 2,
+            y1 = GRID_START_Y,
+            x2 = 5,
+            y2 = GRID_START_Y + 5
+        }
+    )
 
-        local row =
-            math.floor(n / 5)
+    --------------------------------------------------
+    -- 1-36
+    --------------------------------------------------
 
-        local col =
-            n % 5
+    local n = 1
 
-        local x =
-            2 + col * 5
+    for col = 1, 12 do
+        for row = 1, 3 do
 
-        local y =
-            startY + row * 2
+            local x =
+                6
+                + (col - 1) * CELL_W
 
-        table.insert(
-            numberCells,
-            {
-                number = n,
-                x1 = x,
-                y1 = y,
-                x2 = x + 3,
-                y2 = y
-            }
-        )
+            local y =
+                GRID_START_Y
+                + (3 - row) * CELL_H
+
+            table.insert(
+                numberCells,
+                {
+                    number = n,
+                    x1 = x,
+                    y1 = y,
+                    x2 = x + CELL_W - 1,
+                    y2 = y + CELL_H - 1
+                }
+            )
+
+            n = n + 1
+        end
     end
 end
 
-setupNumberCells()
+setupNumberGrid()
 
 local function numberSelected(n)
     return
@@ -693,25 +556,32 @@ local function drawNumberGrid()
             and colors.black
             or colors.white
 
+        for y = cell.y1, cell.y2 do
+            fill(
+                cell.x1,
+                y,
+                cell.x2 - cell.x1 + 1,
+                bg
+            )
+        end
+
         local text =
             tostring(n)
 
-        local padding =
-            " " .. text
+        local cx =
+            math.floor(
+                (cell.x1 + cell.x2 - #text + 1) / 2
+            )
 
-        if #padding < 4 then
-            padding =
-                padding
-                .. string.rep(
-                    " ",
-                    4 - #padding
-                )
-        end
+        local cy =
+            math.floor(
+                (cell.y1 + cell.y2) / 2
+            )
 
         writeAt(
-            cell.x1,
-            cell.y1,
-            padding,
+            cx,
+            cy,
+            text,
             fg,
             bg
         )
@@ -719,10 +589,104 @@ local function drawNumberGrid()
 end
 
 --------------------------------------------------
--- BET PAGE
+-- OUTSIDE BETS
 --------------------------------------------------
 
-local function betSelected(button)
+addButton(
+    "red",
+    2,52,10,54,
+    "RED",
+    colors.red,
+    {type="color",value="RED"}
+)
+
+addButton(
+    "black",
+    12,52,20,54,
+    "BLACK",
+    colors.black,
+    {type="color",value="BLACK"}
+)
+
+addButton(
+    "odd",
+    22,52,30,54,
+    "ODD",
+    colors.gray,
+    {type="parity",value="ODD"}
+)
+
+addButton(
+    "even",
+    32,52,40,54,
+    "EVEN",
+    colors.gray,
+    {type="parity",value="EVEN"}
+)
+
+addButton(
+    "low",
+    42,52,50,54,
+    "1-18",
+    colors.gray,
+    {type="range",value="LOW"}
+)
+
+addButton(
+    "high",
+    2,56,10,58,
+    "19-36",
+    colors.gray,
+    {type="range",value="HIGH"}
+)
+
+addButton(
+    "d1",
+    12,56,23,58,
+    "1-12",
+    colors.gray,
+    {type="dozen",value=1}
+)
+
+addButton(
+    "d2",
+    25,56,36,58,
+    "13-24",
+    colors.gray,
+    {type="dozen",value=2}
+)
+
+addButton(
+    "d3",
+    38,56,50,58,
+    "25-36",
+    colors.gray,
+    {type="dozen",value=3}
+)
+
+addButton(
+    "betDown",
+    2,61,10,64,
+    "BET -",
+    colors.gray
+)
+
+addButton(
+    "spin",
+    20,61,38,64,
+    "SPIN",
+    colors.red
+)
+
+addButton(
+    "betUp",
+    47,61,55,64,
+    "BET +",
+    colors.gray
+)
+
+local function outsideSelected(button)
+
     if not selectedBet
         or not button.data
     then
@@ -734,86 +698,114 @@ local function betSelected(button)
         and selectedBet.value == button.data.value
 end
 
-local function drawBetPage()
-
-    clear()
-
-    centered(
-        1,
-        "PLACE YOUR BET",
-        colors.yellow
-    )
-
-    centered(
-        3,
-        "TOUCH A NUMBER OR OPTION",
-        colors.gray
-    )
-
-    drawNumberGrid()
+local function drawOutsideBets()
 
     drawButton(
         buttons.red,
-        betSelected(buttons.red)
+        outsideSelected(buttons.red)
     )
 
     drawButton(
         buttons.black,
-        betSelected(buttons.black)
+        outsideSelected(buttons.black)
     )
 
     drawButton(
         buttons.odd,
-        betSelected(buttons.odd)
+        outsideSelected(buttons.odd)
     )
 
     drawButton(
         buttons.even,
-        betSelected(buttons.even)
+        outsideSelected(buttons.even)
     )
 
     drawButton(
         buttons.low,
-        betSelected(buttons.low)
+        outsideSelected(buttons.low)
     )
 
     drawButton(
         buttons.high,
-        betSelected(buttons.high)
+        outsideSelected(buttons.high)
     )
 
     drawButton(
         buttons.d1,
-        betSelected(buttons.d1)
+        outsideSelected(buttons.d1)
     )
 
     drawButton(
         buttons.d2,
-        betSelected(buttons.d2)
+        outsideSelected(buttons.d2)
     )
 
     drawButton(
         buttons.d3,
-        betSelected(buttons.d3)
+        outsideSelected(buttons.d3)
     )
 
     drawButton(
-        buttons.confirm,
+        buttons.betDown,
+        false
+    )
+
+    drawButton(
+        buttons.spin,
+        false
+    )
+
+    drawButton(
+        buttons.betUp,
         false
     )
 end
 
 --------------------------------------------------
--- DRAW CURRENT PAGE
+-- MESSAGE
+--------------------------------------------------
+
+local function drawMessage()
+
+    local color =
+        colors.gray
+
+    if message:find("WIN") then
+        color =
+            colors.green
+
+    elseif message:find("LOSE")
+        or message:find("NOT ENOUGH")
+    then
+        color =
+            colors.red
+
+    elseif message:find("SPIN") then
+        color =
+            colors.yellow
+    end
+
+    centered(
+        66,
+        message,
+        color
+    )
+end
+
+--------------------------------------------------
+-- FULL DRAW
 --------------------------------------------------
 
 local function draw()
 
-    if page == "main" then
-        drawMainPage()
-    else
-        drawBetPage()
-    end
+    clear()
+
+    drawHeader()
+    drawWheel()
+    drawResult()
+    drawNumberGrid()
+    drawOutsideBets()
+    drawMessage()
 end
 
 --------------------------------------------------
@@ -823,28 +815,34 @@ end
 local function betLabel(data)
 
     if data.type == "number" then
-        return "NUMBER " .. data.value
+        return "BETTING NUMBER "
+            .. data.value
 
     elseif data.type == "color" then
-        return data.value
+        return "BETTING "
+            .. data.value
 
     elseif data.type == "parity" then
-        return data.value
+        return "BETTING "
+            .. data.value
 
     elseif data.type == "range" then
+
         return
             data.value == "LOW"
-            and "1-18"
-            or "19-36"
+            and "BETTING 1-18"
+            or "BETTING 19-36"
 
     elseif data.type == "dozen" then
 
         if data.value == 1 then
-            return "1-12"
+            return "BETTING 1-12"
+
         elseif data.value == 2 then
-            return "13-24"
+            return "BETTING 13-24"
+
         else
-            return "25-36"
+            return "BETTING 25-36"
         end
     end
 
@@ -861,8 +859,14 @@ local function selectBet(data)
         return
     end
 
-    selectedBet = data
-    selectedLabel = betLabel(data)
+    selectedBet =
+        data
+
+    selectedLabel =
+        betLabel(data)
+
+    message =
+        "READY TO SPIN"
 
     draw()
 end
@@ -883,17 +887,29 @@ local function calculatePayout(n)
     local v =
         selectedBet.value
 
+    --------------------------------------------------
+    -- NUMBER
+    --------------------------------------------------
+
     if t == "number" then
 
         if n == v then
             return betAmount * 36
         end
 
+    --------------------------------------------------
+    -- COLOR
+    --------------------------------------------------
+
     elseif t == "color" then
 
         if numberColorName(n) == v then
             return betAmount * 2
         end
+
+    --------------------------------------------------
+    -- ODD / EVEN
+    --------------------------------------------------
 
     elseif t == "parity" then
 
@@ -912,6 +928,10 @@ local function calculatePayout(n)
             end
         end
 
+    --------------------------------------------------
+    -- LOW / HIGH
+    --------------------------------------------------
+
     elseif t == "range" then
 
         if v == "LOW"
@@ -927,6 +947,10 @@ local function calculatePayout(n)
         then
             return betAmount * 2
         end
+
+    --------------------------------------------------
+    -- DOZENS
+    --------------------------------------------------
 
     elseif t == "dozen" then
 
@@ -959,7 +983,7 @@ local function spin()
     if not selectedBet then
 
         message =
-            "PLACE A BET FIRST"
+            "SELECT A BET FIRST"
 
         draw()
 
@@ -981,10 +1005,13 @@ local function spin()
 
     spinning = true
     resultNumber = nil
-    message = ""
+    winningIndex = nil
+
+    message =
+        "SPINNING..."
 
     --------------------------------------------------
-    -- PICK WINNER
+    -- PICK RESULT
     --------------------------------------------------
 
     local targetIndex =
@@ -993,14 +1020,14 @@ local function spin()
             #wheel
         )
 
-    local winningNumber =
+    local targetNumber =
         wheel[targetIndex]
 
     --------------------------------------------------
-    -- FAST SPIN
+    -- FAST
     --------------------------------------------------
 
-    for frame = 1, 35 do
+    for frame = 1, 45 do
 
         wheelIndex =
             wrapWheel(
@@ -1012,11 +1039,11 @@ local function spin()
                 ballIndex - 1
             )
 
-        drawMainPage()
+        draw()
 
         sleep(
-            0.025
-            + frame * 0.0015
+            0.02
+            + frame * 0.001
         )
     end
 
@@ -1024,7 +1051,7 @@ local function spin()
     -- MEDIUM
     --------------------------------------------------
 
-    for frame = 1, 20 do
+    for frame = 1, 25 do
 
         wheelIndex =
             wrapWheel(
@@ -1036,16 +1063,16 @@ local function spin()
                 ballIndex - 1
             )
 
-        drawMainPage()
+        draw()
 
         sleep(
-            0.06
-            + frame * 0.006
+            0.055
+            + frame * 0.005
         )
     end
 
     --------------------------------------------------
-    -- SLOW WHEEL INTO RESULT
+    -- SLOW WHEEL
     --------------------------------------------------
 
     while wheelIndex ~= targetIndex do
@@ -1055,40 +1082,48 @@ local function spin()
                 wheelIndex + 1
             )
 
-        drawMainPage()
+        ballIndex =
+            wrapRing(
+                ballIndex - 1
+            )
 
-        sleep(0.12)
+        draw()
+
+        sleep(0.11)
     end
 
     --------------------------------------------------
     -- BALL BOUNCES
     --------------------------------------------------
 
-    for i = 1, 7 do
+    for i = 1, 12 do
 
         ballIndex =
             wrapRing(
                 ballIndex + 1
             )
 
-        drawMainPage()
+        draw()
 
         sleep(
-            0.12
-            + i * 0.03
+            0.08
+            + i * 0.025
         )
     end
 
     --------------------------------------------------
-    -- RESULT
+    -- FINAL
     --------------------------------------------------
 
+    winningIndex =
+        targetIndex
+
     resultNumber =
-        winningNumber
+        targetNumber
 
     local payout =
         calculatePayout(
-            winningNumber
+            targetNumber
         )
 
     credits =
@@ -1106,9 +1141,10 @@ local function spin()
             "LOSE"
     end
 
-    spinning = false
+    spinning =
+        false
 
-    drawMainPage()
+    draw()
 end
 
 --------------------------------------------------
@@ -1146,65 +1182,17 @@ local function raiseBet()
 end
 
 --------------------------------------------------
--- MAIN PAGE TOUCH
+-- TOUCH
 --------------------------------------------------
 
-local function handleMainTouch(x, y)
+local function handleTouch(x, y)
 
-    if inside(
-        buttons.placeBet,
-        x,
-        y
-    ) then
-
-        page = "bet"
-        draw()
-
+    if spinning then
         return
     end
-
-    if inside(
-        buttons.spin,
-        x,
-        y
-    ) then
-
-        spin()
-
-        return
-    end
-
-    if inside(
-        buttons.betDown,
-        x,
-        y
-    ) then
-
-        lowerBet()
-
-        return
-    end
-
-    if inside(
-        buttons.betUp,
-        x,
-        y
-    ) then
-
-        raiseBet()
-
-        return
-    end
-end
-
---------------------------------------------------
--- BET PAGE TOUCH
---------------------------------------------------
-
-local function handleBetTouch(x, y)
 
     --------------------------------------------------
-    -- NUMBERS
+    -- NUMBER GRID
     --------------------------------------------------
 
     for _, cell in ipairs(numberCells) do
@@ -1227,50 +1215,38 @@ local function handleBetTouch(x, y)
     end
 
     --------------------------------------------------
-    -- OPTIONS
+    -- OTHER BUTTONS
     --------------------------------------------------
 
     for name, button in pairs(buttons) do
 
-        if button.data
-            and inside(
-                button,
-                x,
-                y
-            )
-        then
+        if inside(
+            button,
+            x,
+            y
+        ) then
 
-            selectBet(
-                button.data
-            )
+            if name == "spin" then
+
+                spin()
+
+            elseif name == "betDown" then
+
+                lowerBet()
+
+            elseif name == "betUp" then
+
+                raiseBet()
+
+            elseif button.data then
+
+                selectBet(
+                    button.data
+                )
+            end
 
             return
         end
-    end
-
-    --------------------------------------------------
-    -- CONFIRM
-    --------------------------------------------------
-
-    if inside(
-        buttons.confirm,
-        x,
-        y
-    ) then
-
-        page = "main"
-
-        if selectedBet then
-            message =
-                "READY TO SPIN"
-        else
-            message =
-                "PLACE A BET"
-        end
-
-        draw()
-
-        return
     end
 end
 
@@ -1279,45 +1255,19 @@ end
 --------------------------------------------------
 
 term.clear()
-term.setCursorPos(
-    1,
-    1
-)
+term.setCursorPos(1, 1)
 
-print(
-    "COOK'S ROULETTE V3"
-)
-
-print(
-    "------------------"
-)
-
+print("COOK'S ROULETTE V4")
+print("------------------")
 print("")
-
-print(
-    "Clean touchscreen UI"
-)
-
+print("Designed for 57x67")
 print("")
-
-print(
-    "Monitor: "
-    .. W
-    .. " x "
-    .. H
-)
-
+print("Large animated wheel")
+print("Full betting table")
 print("")
-
-print(
-    "European roulette 0-36"
-)
-
+print("European roulette 0-36")
 print("")
-
-print(
-    "Ctrl+T to stop"
-)
+print("Ctrl+T to stop")
 
 --------------------------------------------------
 -- START
@@ -1336,7 +1286,7 @@ wheelIndex =
 ballIndex =
     math.random(
         1,
-        #ringPositions
+        #wheelPositions
     )
 
 draw()
@@ -1348,15 +1298,8 @@ while true do
             "monitor_touch"
         )
 
-    if page == "main" then
-        handleMainTouch(
-            x,
-            y
-        )
-    else
-        handleBetTouch(
-            x,
-            y
-        )
-    end
+    handleTouch(
+        x,
+        y
+    )
 end
