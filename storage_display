@@ -1,159 +1,56 @@
 -- ============================================================
--- COOK'S STORAGE - DISPLAY
+-- COOK'S STORAGE - MASTER DISPLAY
 -- Computer #1
--- Wireless modem: FRONT
--- Monitor: RIGHT
+-- Automatically discovers unlimited storage nodes
 -- ============================================================
 
-local MODEM_SIDE = "front"
-local MONITOR_SIDE = "right"
-local SERVER_ID = 0
-local PROTOCOL = "realcraft_storage"
+local PROTOCOL = "cooks_storage_v2"
+local NODE_TIMEOUT = 20
 
-local monitor = peripheral.wrap(MONITOR_SIDE)
+--------------------------------------------------
+-- FIND WIRELESS MODEM
+--------------------------------------------------
 
-if not monitor then
-    error("Monitor not found on " .. MONITOR_SIDE)
+local wirelessModem = nil
+
+for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.hasType(name, "modem") then
+        local modem = peripheral.wrap(name)
+
+        if modem and modem.isWireless and modem.isWireless() then
+            wirelessModem = name
+            break
+        end
+    end
 end
 
-if not rednet.isOpen(MODEM_SIDE) then
-    rednet.open(MODEM_SIDE)
+if not wirelessModem then
+    error("No wireless modem found!")
+end
+
+if not rednet.isOpen(wirelessModem) then
+    rednet.open(wirelessModem)
+end
+
+--------------------------------------------------
+-- FIND MONITOR
+--------------------------------------------------
+
+local monitor = peripheral.find("monitor")
+
+if not monitor then
+    error("No monitor found!")
 end
 
 monitor.setTextScale(0.5)
 
+--------------------------------------------------
+-- DATA
+--------------------------------------------------
+
+local nodes = {}
 local history = {}
 local lastHistorySample = 0
-local lastDataTime = 0
-
--- ------------------------------------------------------------
--- Helpers
--- ------------------------------------------------------------
-
-local function comma(number)
-    number = math.floor(tonumber(number) or 0)
-
-    local sign = ""
-
-    if number < 0 then
-        sign = "-"
-        number = math.abs(number)
-    end
-
-    local text = tostring(number)
-
-    while true do
-        local changed, count =
-            text:gsub("^(%d+)(%d%d%d)", "%1,%2")
-
-        text = changed
-
-        if count == 0 then
-            break
-        end
-    end
-
-    return sign .. text
-end
-
-local function short(number)
-    number = tonumber(number) or 0
-    local absolute = math.abs(number)
-
-    if absolute >= 1000000000 then
-        return string.format("%.1fB", number / 1000000000)
-    elseif absolute >= 1000000 then
-        return string.format("%.1fM", number / 1000000)
-    elseif absolute >= 1000 then
-        return string.format("%.1fK", number / 1000)
-    end
-
-    return tostring(math.floor(number))
-end
-
-local function cleanItemName(name)
-    name = tostring(name or "?")
-
-    name = name:match(":(.+)$") or name
-    name = name:gsub("_", " ")
-
-    return name
-end
-
-local function writeAt(x, y, text, color, background)
-    local width, height = monitor.getSize()
-
-    if y < 1 or y > height then
-        return
-    end
-
-    if x < 1 or x > width then
-        return
-    end
-
-    text = tostring(text)
-
-    if #text > width - x + 1 then
-        text = text:sub(1, width - x + 1)
-    end
-
-    monitor.setCursorPos(x, y)
-    monitor.setTextColor(color or colors.white)
-    monitor.setBackgroundColor(background or colors.black)
-    monitor.write(text)
-end
-
-local function fill(x, y, width, color)
-    local screenWidth = monitor.getSize()
-
-    width = math.min(width, screenWidth - x + 1)
-
-    if width <= 0 then
-        return
-    end
-
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(color)
-    monitor.write(string.rep(" ", width))
-    monitor.setBackgroundColor(colors.black)
-end
-
-local function line(y, color)
-    local width = monitor.getSize()
-
-    writeAt(
-        2,
-        y,
-        string.rep("-", math.max(1, width - 3)),
-        color or colors.gray
-    )
-end
-
-local function bar(x, y, width, ratio, color)
-    ratio = math.max(0, math.min(1, ratio or 0))
-
-    fill(x, y, width, colors.gray)
-
-    local amount = math.floor(width * ratio)
-
-    if amount > 0 then
-        fill(x, y, amount, color)
-    end
-end
-
-local function percentColor(percent)
-    if percent >= 0.90 then
-        return colors.red
-    elseif percent >= 0.75 then
-        return colors.orange
-    end
-
-    return colors.lime
-end
-
--- ------------------------------------------------------------
--- Category colors
--- ------------------------------------------------------------
 
 local CATEGORY_ORDER = {
     {"Wood", colors.brown},
@@ -162,67 +59,432 @@ local CATEGORY_ORDER = {
     {"Misc", colors.gray},
     {"Armor", colors.cyan},
     {"Potions", colors.purple},
-    {"Blocks", colors.lightGray},
+    {"Blocks", colors.white},
     {"Create", colors.magenta},
     {"Food", colors.lime},
     {"Weapons", colors.red}
 }
 
-local function drawCompositionBar(data, x, y, width)
-    local total = data.totalItems or 0
+--------------------------------------------------
+-- HELPERS
+--------------------------------------------------
 
-    if total <= 0 then
-        fill(x, y, width, colors.gray)
+local function short(n)
+
+    n = tonumber(n) or 0
+
+    if math.abs(n) >= 1000000000 then
+        return string.format("%.1fB", n / 1000000000)
+
+    elseif math.abs(n) >= 1000000 then
+        return string.format("%.1fM", n / 1000000)
+
+    elseif math.abs(n) >= 1000 then
+        return string.format("%.1fK", n / 1000)
+    end
+
+    return tostring(math.floor(n))
+end
+
+local function comma(n)
+
+    n = math.floor(tonumber(n) or 0)
+
+    local text = tostring(n)
+
+    while true do
+
+        local new, changes =
+            text:gsub(
+                "^(-?%d+)(%d%d%d)",
+                "%1,%2"
+            )
+
+        text = new
+
+        if changes == 0 then
+            break
+        end
+    end
+
+    return text
+end
+
+local function cleanName(name)
+
+    name = tostring(name or "?")
+
+    name =
+        name:match(":(.+)$")
+        or name
+
+    name =
+        name:gsub("_", " ")
+
+    return name
+end
+
+local function writeAt(x, y, text, fg, bg)
+
+    local w, h =
+        monitor.getSize()
+
+    if x < 1
+        or y < 1
+        or x > w
+        or y > h
+    then
         return
     end
 
-    local cursor = x
+    text = tostring(text)
+
+    if #text > w - x + 1 then
+        text =
+            text:sub(
+                1,
+                w - x + 1
+            )
+    end
+
+    monitor.setCursorPos(x, y)
+
+    monitor.setTextColor(
+        fg or colors.white
+    )
+
+    monitor.setBackgroundColor(
+        bg or colors.black
+    )
+
+    monitor.write(text)
+end
+
+local function fill(x, y, width, color)
+
+    local screenWidth =
+        monitor.getSize()
+
+    width =
+        math.min(
+            width,
+            screenWidth - x + 1
+        )
+
+    if width <= 0 then
+        return
+    end
+
+    monitor.setCursorPos(x, y)
+
+    monitor.setBackgroundColor(color)
+
+    monitor.write(
+        string.rep(" ", width)
+    )
+
+    monitor.setBackgroundColor(
+        colors.black
+    )
+end
+
+local function bar(x, y, width, ratio, color)
+
+    ratio =
+        math.max(
+            0,
+            math.min(1, ratio or 0)
+        )
+
+    fill(
+        x,
+        y,
+        width,
+        colors.gray
+    )
+
+    local amount =
+        math.floor(
+            width * ratio
+        )
+
+    if amount > 0 then
+        fill(
+            x,
+            y,
+            amount,
+            color
+        )
+    end
+end
+
+local function usageColor(ratio)
+
+    if ratio >= 0.90 then
+        return colors.red
+
+    elseif ratio >= 0.75 then
+        return colors.orange
+    end
+
+    return colors.lime
+end
+
+--------------------------------------------------
+-- COMBINE ALL ONLINE NODES
+--------------------------------------------------
+
+local function combine()
+
+    local result = {
+
+        activeNodes = 0,
+
+        inventories = 0,
+
+        totalSlots = 0,
+        usedSlots = 0,
+
+        totalItems = 0,
+        itemTypes = 0,
+
+        itemsPerMinute = 0,
+        slotsPerMinute = 0,
+
+        categories = {},
+        topItems = {},
+        nodes = {}
+    }
+
+    for _, category in ipairs(CATEGORY_ORDER) do
+        result.categories[category[1]] = 0
+    end
+
+    local combinedItems = {}
+
+    local now =
+        os.epoch("utc")
+
+    --------------------------------------------------
+    -- NODES
+    --------------------------------------------------
+
+    for id, node in pairs(nodes) do
+
+        if
+            now - node.lastSeen
+            <= NODE_TIMEOUT * 1000
+        then
+
+            local data =
+                node.data
+
+            result.activeNodes =
+                result.activeNodes + 1
+
+            result.inventories =
+                result.inventories
+                + (data.inventories or 0)
+
+            result.totalSlots =
+                result.totalSlots
+                + (data.totalSlots or 0)
+
+            result.usedSlots =
+                result.usedSlots
+                + (data.usedSlots or 0)
+
+            result.totalItems =
+                result.totalItems
+                + (data.totalItems or 0)
+
+            result.itemTypes =
+                result.itemTypes
+                + (data.itemTypes or 0)
+
+            result.itemsPerMinute =
+                result.itemsPerMinute
+                + (data.itemsPerMinute or 0)
+
+            result.slotsPerMinute =
+                result.slotsPerMinute
+                + (data.slotsPerMinute or 0)
+
+            for category, count
+                in pairs(data.categories or {})
+            do
+
+                result.categories[category] =
+                    (result.categories[category] or 0)
+                    + count
+            end
+
+            for _, item
+                in ipairs(data.topItems or {})
+            do
+
+                combinedItems[item.name] =
+                    (combinedItems[item.name] or 0)
+                    + item.count
+            end
+
+            table.insert(
+                result.nodes,
+                {
+                    id = id,
+                    name =
+                        data.nodeName
+                        or ("Storage #" .. id),
+
+                    inventories =
+                        data.inventories or 0,
+
+                    items =
+                        data.totalItems or 0,
+
+                    usedSlots =
+                        data.usedSlots or 0,
+
+                    totalSlots =
+                        data.totalSlots or 0
+                }
+            )
+        end
+    end
+
+    --------------------------------------------------
+    -- TOP ITEMS
+    --------------------------------------------------
+
+    for name, count
+        in pairs(combinedItems)
+    do
+        table.insert(
+            result.topItems,
+            {
+                name = name,
+                count = count
+            }
+        )
+    end
+
+    table.sort(
+        result.topItems,
+        function(a, b)
+            return a.count > b.count
+        end
+    )
+
+    while #result.topItems > 8 do
+        table.remove(result.topItems)
+    end
+
+    --------------------------------------------------
+    -- SORT NODES BY NAME
+    --------------------------------------------------
+
+    table.sort(
+        result.nodes,
+        function(a, b)
+            return
+                string.lower(a.name)
+                < string.lower(b.name)
+        end
+    )
+
+    return result
+end
+
+--------------------------------------------------
+-- COMPOSITION BAR
+--------------------------------------------------
+
+local function drawComposition(data, x, y, width)
+
+    if data.totalItems <= 0 then
+        fill(
+            x,
+            y,
+            width,
+            colors.gray
+        )
+
+        return
+    end
+
+    local currentX = x
     local remaining = width
 
-    for index, entry in ipairs(CATEGORY_ORDER) do
-        local category = entry[1]
+    for index, entry
+        in ipairs(CATEGORY_ORDER)
+    do
+
+        local name = entry[1]
         local color = entry[2]
 
         local count =
-            (data.categories and data.categories[category])
-            or 0
-
-        local ratio = count / total
+            data.categories[name] or 0
 
         local amount
 
         if index == #CATEGORY_ORDER then
+
             amount = remaining
+
         else
-            amount = math.floor(width * ratio)
-            amount = math.min(amount, remaining)
+
+            amount =
+                math.floor(
+                    width
+                    * count
+                    / data.totalItems
+                )
+
+            amount =
+                math.min(
+                    amount,
+                    remaining
+                )
         end
 
         if amount > 0 then
-            fill(cursor, y, amount, color)
 
-            cursor = cursor + amount
-            remaining = remaining - amount
+            fill(
+                currentX,
+                y,
+                amount,
+                color
+            )
+
+            currentX =
+                currentX + amount
+
+            remaining =
+                remaining - amount
         end
-    end
-
-    if remaining > 0 then
-        fill(cursor, y, remaining, colors.gray)
     end
 end
 
--- ------------------------------------------------------------
--- History graph
--- ------------------------------------------------------------
+--------------------------------------------------
+-- HISTORY
+--------------------------------------------------
 
-local function addHistory(value)
-    local now = os.epoch("utc")
+local function sampleHistory(value)
 
-    -- roughly one sample per minute
-    if now - lastHistorySample >= 60000 then
+    local now =
+        os.epoch("utc")
+
+    if
+        now - lastHistorySample
+        >= 60000
+    then
+
         lastHistorySample = now
 
-        table.insert(history, value)
+        table.insert(
+            history,
+            value
+        )
 
         while #history > 60 do
             table.remove(history, 1)
@@ -231,131 +493,100 @@ local function addHistory(value)
 end
 
 local function drawGraph(x, y, width, height)
+
     if #history == 0 then
         return
     end
 
-    local minimum = history[1]
-    local maximum = history[1]
+    local minimum =
+        history[1]
 
-    for _, value in ipairs(history) do
-        minimum = math.min(minimum, value)
-        maximum = math.max(maximum, value)
+    local maximum =
+        history[1]
+
+    for _, value
+        in ipairs(history)
+    do
+
+        minimum =
+            math.min(
+                minimum,
+                value
+            )
+
+        maximum =
+            math.max(
+                maximum,
+                value
+            )
     end
 
-    local range = math.max(1, maximum - minimum)
+    local range =
+        math.max(
+            1,
+            maximum - minimum
+        )
 
-    local startIndex =
-        math.max(1, #history - width + 1)
+    local start =
+        math.max(
+            1,
+            #history - width + 1
+        )
 
-    local values = {}
+    local column = 0
 
-    for i = startIndex, #history do
-        table.insert(values, history[i])
-    end
+    for i = start, #history do
 
-    for column = 1, #values do
+        column =
+            column + 1
+
         local ratio =
-            (values[column] - minimum) / range
+            (history[i] - minimum)
+            / range
 
         local graphHeight =
-            math.floor(ratio * (height - 1)) + 1
+            math.floor(
+                ratio * (height - 1)
+            ) + 1
 
         for row = 0, graphHeight - 1 do
-            local py = y + height - 1 - row
 
             writeAt(
                 x + column - 1,
-                py,
+                y + height - 1 - row,
                 " ",
                 colors.white,
                 colors.green
             )
         end
     end
-
-    -- line along top of each bar
-    for column = 1, #values do
-        local ratio =
-            (values[column] - minimum) / range
-
-        local graphHeight =
-            math.floor(ratio * (height - 1)) + 1
-
-        local py =
-            y + height - graphHeight
-
-        writeAt(
-            x + column - 1,
-            py,
-            "-",
-            colors.lime,
-            colors.green
-        )
-    end
 end
 
--- ------------------------------------------------------------
--- Offline screen
--- ------------------------------------------------------------
+--------------------------------------------------
+-- DRAW
+--------------------------------------------------
 
-local function drawOffline()
-    monitor.setBackgroundColor(colors.black)
+local function draw()
+
+    local data =
+        combine()
+
+    sampleHistory(
+        data.usedSlots
+    )
+
+    monitor.setBackgroundColor(
+        colors.black
+    )
+
     monitor.clear()
 
-    writeAt(
-        2,
-        2,
-        "COOK'S STORAGE",
-        colors.orange
-    )
+    local w, h =
+        monitor.getSize()
 
-    writeAt(
-        2,
-        4,
-        "WAITING FOR STORAGE SERVER...",
-        colors.yellow
-    )
-
-    writeAt(
-        2,
-        6,
-        "Computer #0 -> Computer #1",
-        colors.lightGray
-    )
-end
-
--- ------------------------------------------------------------
--- Main dashboard
--- ------------------------------------------------------------
-
-local function draw(data)
-    monitor.setBackgroundColor(colors.black)
-    monitor.clear()
-
-    local width, height = monitor.getSize()
-
-    local usedSlots =
-        tonumber(data.usedSlots) or 0
-
-    local totalSlots =
-        tonumber(data.totalSlots) or 0
-
-    local totalItems =
-        tonumber(data.totalItems) or 0
-
-    local slotPercent = 0
-
-    if totalSlots > 0 then
-        slotPercent =
-            usedSlots / totalSlots
-    end
-
-    addHistory(usedSlots)
-
-    -- ========================================================
+    --------------------------------------------------
     -- HEADER
-    -- ========================================================
+    --------------------------------------------------
 
     writeAt(
         2,
@@ -365,42 +596,53 @@ local function draw(data)
     )
 
     writeAt(
-        18,
+        19,
         1,
-        tostring(data.inventories or 0)
+        data.activeNodes
+            .. " nodes",
+        colors.gray
+    )
+
+    writeAt(
+        30,
+        1,
+        data.inventories
             .. " inventories",
         colors.gray
     )
 
-    writeAt(
-        34,
-        1,
-        tostring(data.itemTypes or 0)
-            .. " item types",
-        colors.gray
-    )
-
     local clock =
-        textutils.formatTime(os.time(), true)
+        textutils.formatTime(
+            os.time(),
+            true
+        )
 
     writeAt(
-        width - #clock,
+        w - #clock,
         1,
         clock,
         colors.gray
     )
 
-    -- ========================================================
-    -- STORAGE %
-    -- ========================================================
+    --------------------------------------------------
+    -- CAPACITY
+    --------------------------------------------------
+
+    local ratio = 0
+
+    if data.totalSlots > 0 then
+        ratio =
+            data.usedSlots
+            / data.totalSlots
+    end
 
     local mainColor =
-        percentColor(slotPercent)
+        usageColor(ratio)
 
     writeAt(
         2,
         3,
-        tostring(math.floor(slotPercent * 100))
+        math.floor(ratio * 100)
             .. "%",
         mainColor
     )
@@ -413,69 +655,48 @@ local function draw(data)
     )
 
     writeAt(
-        12,
+        11,
         3,
-        comma(usedSlots)
+        comma(data.usedSlots)
             .. " / "
-            .. comma(totalSlots)
+            .. comma(data.totalSlots)
             .. " slots used",
         colors.white
     )
 
     bar(
-        12,
+        11,
         4,
-        width - 14,
-        slotPercent,
+        w - 13,
+        ratio,
         mainColor
     )
 
     writeAt(
-        12,
+        11,
         5,
-        short(totalItems) .. " items",
+        short(data.totalItems)
+            .. " items",
         colors.lightGray
     )
 
-    local slotRate =
-        tonumber(data.slotsPerMinute) or 0
-
     local itemRate =
-        tonumber(data.itemsPerMinute) or 0
-
-    local rateX = 27
-
-    local slotText =
-        (slotRate >= 0 and "+" or "")
-        .. short(slotRate)
-        .. " slots/min"
+        data.itemsPerMinute
 
     writeAt(
-        rateX,
+        28,
         5,
-        slotText,
-        slotRate >= 0
-            and colors.lime
-            or colors.red
-    )
-
-    local itemText =
         (itemRate >= 0 and "+" or "")
-        .. short(itemRate)
-        .. " items/min"
-
-    writeAt(
-        rateX + 18,
-        5,
-        itemText,
+            .. short(itemRate)
+            .. " items/min",
         itemRate >= 0
             and colors.lime
             or colors.red
     )
 
-    -- ========================================================
+    --------------------------------------------------
     -- COMPOSITION
-    -- ========================================================
+    --------------------------------------------------
 
     writeAt(
         2,
@@ -484,51 +705,62 @@ local function draw(data)
         colors.gray
     )
 
-    drawCompositionBar(
+    drawComposition(
         data,
         2,
         8,
-        width - 3
+        w - 3
     )
 
-    local legendY = 9
-    local legendX = 2
+    local lx = 2
+    local ly = 9
 
-    for i, entry in ipairs(CATEGORY_ORDER) do
-        local name = entry[1]
-        local color = entry[2]
+    for _, entry
+        in ipairs(CATEGORY_ORDER)
+    do
+
+        local name =
+            entry[1]
 
         local count =
-            (data.categories and data.categories[name])
+            data.categories[name]
             or 0
 
-        local percentage = 0
+        local percent = 0
 
-        if totalItems > 0 then
-            percentage =
-                math.floor((count / totalItems) * 100)
+        if data.totalItems > 0 then
+            percent =
+                math.floor(
+                    count
+                    / data.totalItems
+                    * 100
+                )
         end
 
         writeAt(
-            legendX,
-            legendY,
-            name .. " " .. percentage .. "%",
-            color
+            lx,
+            ly,
+            name
+                .. " "
+                .. percent
+                .. "%",
+            entry[2]
         )
 
-        legendX = legendX + 15
+        lx = lx + 15
 
-        if legendX + 14 > width then
-            legendX = 2
-            legendY = legendY + 1
+        if lx + 14 > w then
+            lx = 2
+            ly = ly + 1
         end
     end
 
-    -- ========================================================
-    -- HISTORY
-    -- ========================================================
+    --------------------------------------------------
+    -- GRAPH
+    --------------------------------------------------
 
-    local graphTitleY = legendY + 2
+    local graphTitleY =
+        ly + 2
 
     writeAt(
         2,
@@ -537,66 +769,55 @@ local function draw(data)
         colors.gray
     )
 
-    local graphY = graphTitleY + 1
-    local graphHeight = 4
-
     drawGraph(
         2,
-        graphY,
-        width - 3,
-        graphHeight
+        graphTitleY + 1,
+        w - 3,
+        4
     )
 
-    -- ========================================================
-    -- LOWER SECTION
-    -- ========================================================
+    --------------------------------------------------
+    -- LOWER HALF
+    --------------------------------------------------
 
-    local lowerY =
-        graphY + graphHeight + 1
+    local bottomY =
+        graphTitleY + 6
 
     local rightX =
-        math.max(
-            36,
-            math.floor(width * 0.56)
-        )
+        math.floor(w * 0.56)
 
-    -- TOP CONSUMERS
     writeAt(
         2,
-        lowerY,
+        bottomY,
         "TOP CONSUMERS",
         colors.gray
     )
 
-    local topItems =
-        data.topItems or {}
-
-    local rowsAvailable =
-        math.max(1, height - lowerY - 3)
-
-    local maxTop =
-        math.min(7, #topItems, rowsAvailable)
-
-    for i = 1, maxTop do
-        local item = topItems[i]
-
-        local itemName =
-            cleanItemName(item.name)
-
-        if #itemName > 18 then
-            itemName =
-                itemName:sub(1, 18)
-        end
+    for i, item
+        in ipairs(data.topItems)
+    do
 
         local y =
-            lowerY + i
+            bottomY + i
+
+        if y >= h then
+            break
+        end
+
+        local name =
+            cleanName(item.name)
+
+        if #name > 18 then
+            name =
+                name:sub(1, 18)
+        end
 
         writeAt(
             2,
             y,
             string.format(
                 "%-18s",
-                itemName
+                name
             ),
             colors.white
         )
@@ -611,160 +832,152 @@ local function draw(data)
             colors.lightGray
         )
 
-        local ratio = 0
-
-        if topItems[1]
-            and topItems[1].count > 0
-        then
-            ratio =
-                item.count / topItems[1].count
-        end
+        local topCount =
+            data.topItems[1]
+            and data.topItems[1].count
+            or 1
 
         bar(
             29,
             y,
-            math.max(4, rightX - 31),
-            ratio,
+            math.max(
+                4,
+                rightX - 31
+            ),
+            item.count
+                / math.max(1, topCount),
             colors.orange
         )
     end
 
-    -- STORAGE UNITS
+    --------------------------------------------------
+    -- STORAGE NODES
+    --------------------------------------------------
+
     writeAt(
         rightX,
-        lowerY,
-        "STORAGE",
+        bottomY,
+        "STORAGE NETWORKS",
         colors.gray
     )
 
-    local units =
-        data.storageUnits or {}
-
-    local maxUnits =
-        math.min(
-            7,
-            #units,
-            rowsAvailable
-        )
-
-    for i = 1, maxUnits do
-        local unit = units[i]
+    for i, node
+        in ipairs(data.nodes)
+    do
 
         local y =
-            lowerY + i
+            bottomY + i
 
-        local ratio = 0
-
-        if unit.totalSlots
-            and unit.totalSlots > 0
-        then
-            ratio =
-                unit.usedSlots
-                / unit.totalSlots
+        if y >= h then
+            break
         end
 
-        local label =
-            tostring(unit.name or "Storage")
+        local name =
+            tostring(node.name)
 
-        if #label > 15 then
-            label = label:sub(1, 15)
+        if #name > 16 then
+            name =
+                name:sub(1, 16)
+        end
+
+        local nodeRatio = 0
+
+        if node.totalSlots > 0 then
+            nodeRatio =
+                node.usedSlots
+                / node.totalSlots
         end
 
         writeAt(
             rightX,
             y,
             string.format(
-                "%-15s",
-                label
+                "%-16s",
+                name
             ),
             colors.white
         )
 
-        local barX =
-            rightX + 16
-
-        local barWidth =
-            math.max(
-                5,
-                width - barX - 5
-            )
+        local bx =
+            rightX + 17
 
         bar(
-            barX,
+            bx,
             y,
-            barWidth,
-            ratio,
-            percentColor(ratio)
+            math.max(
+                5,
+                w - bx - 5
+            ),
+            nodeRatio,
+            usageColor(nodeRatio)
         )
 
         writeAt(
-            width - 3,
+            w - 3,
             y,
-            tostring(
-                math.floor(ratio * 100)
+            math.floor(
+                nodeRatio * 100
             ) .. "%",
-            ratio >= 0.90
-                and colors.red
-                or colors.lightGray
+            colors.lightGray
         )
     end
 
-    -- ========================================================
-    -- STATUS / ALERTS
-    -- ========================================================
+    --------------------------------------------------
+    -- STATUS
+    --------------------------------------------------
 
-    if height >= 2 then
-        if slotPercent >= 0.95 then
-            writeAt(
-                2,
-                height,
-                "ALERT: STORAGE IS 95%+ FULL",
-                colors.red
-            )
-
-        elseif slotPercent >= 0.85 then
-            writeAt(
-                2,
-                height,
-                "WARNING: STORAGE APPROACHING CAPACITY",
-                colors.orange
-            )
-
-        else
-            writeAt(
-                2,
-                height,
-                "COOK'S STORAGE ONLINE",
-                colors.green
-            )
-        end
+    if data.activeNodes == 0 then
 
         writeAt(
-            width - 10,
-            height,
-            tostring(data.inventories or 0)
-                .. " active",
+            2,
+            h,
+            "WAITING FOR STORAGE NODES...",
+            colors.red
+        )
+
+    else
+
+        writeAt(
+            2,
+            h,
+            "COOK'S STORAGE ONLINE",
+            colors.green
+        )
+
+        writeAt(
+            w - 15,
+            h,
+            data.activeNodes
+                .. " nodes online",
             colors.gray
         )
     end
 end
 
--- ------------------------------------------------------------
--- Run
--- ------------------------------------------------------------
+--------------------------------------------------
+-- MAIN
+--------------------------------------------------
 
-drawOffline()
+draw()
 
 while true do
-    local sender, message, protocol =
-        rednet.receive(PROTOCOL, 15)
 
-    if sender == SERVER_ID
+    local sender, message =
+        rednet.receive(
+            PROTOCOL,
+            5
+        )
+
+    if sender
         and type(message) == "table"
+        and message.nodeId
     then
-        lastDataTime = os.epoch("utc")
-        draw(message)
-    else
-        drawOffline()
+
+        nodes[message.nodeId] = {
+            data = message,
+            lastSeen = os.epoch("utc")
+        }
     end
+
+    draw()
 end
