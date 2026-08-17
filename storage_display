@@ -1,404 +1,456 @@
--- REAL Craft Wireless Storage Display
--- Computer #2
--- Wireless modem: FRONT
--- Advanced Monitor: RIGHT
+-- ============================================================
+-- COOK'S STORAGE - SERVER
+-- Computer #0
+-- Reads ALL connected inventories
+-- Sends directly to Computer #1
+-- ============================================================
 
-local MODEM_SIDE = "front"
-local MONITOR_SIDE = "right"
+local WIRELESS_MODEM = "front"
+local DISPLAY_ID = 1
 local PROTOCOL = "realcraft_storage"
 
-rednet.open(MODEM_SIDE)
+local REFRESH_SECONDS = 5
+local CAPACITY_REFRESH_SECONDS = 60
 
-local monitor = peripheral.wrap(MONITOR_SIDE)
-
-if not monitor then
-    error("Monitor not found on " .. MONITOR_SIDE)
+if not rednet.isOpen(WIRELESS_MODEM) then
+    rednet.open(WIRELESS_MODEM)
 end
 
-monitor.setTextScale(0.5)
-monitor.setBackgroundColor(colors.black)
-monitor.clear()
+local previousTotalItems = nil
+local previousUsedSlots = nil
+local previousTime = os.epoch("utc")
 
-local history = {}
+local capacityCache = {}
+local lastCapacityRefresh = 0
 
-local function comma(n)
-    n = math.floor(tonumber(n) or 0)
+-- ------------------------------------------------------------
+-- Helpers
+-- ------------------------------------------------------------
 
-    local formatted = tostring(n)
-
-    while true do
-        local new, k = formatted:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
-        formatted = new
-
-        if k == 0 then
-            break
-        end
-    end
-
-    return formatted
+local function isInventory(name)
+    return peripheral.hasType(name, "inventory")
 end
 
-local function short(n)
-    n = tonumber(n) or 0
-
-    if math.abs(n) >= 1000000 then
-        return string.format("%.1fM", n / 1000000)
-    elseif math.abs(n) >= 1000 then
-        return string.format("%.1fK", n / 1000)
-    end
-
-    return tostring(math.floor(n))
+local function isIgnored(name)
+    -- Do not treat direct computer sides as storage if they
+    -- somehow expose something unexpected.
+    return false
 end
 
-local function writeAt(x, y, text, color)
-    local w, h = monitor.getSize()
+local function friendlyStorageName(name)
+    local vaultNumber = name:match("create:item_vault_(%d+)")
 
-    if y < 1 or y > h or x > w then
-        return
+    if vaultNumber then
+        return "Vault " .. tostring(tonumber(vaultNumber) + 1)
     end
 
-    text = tostring(text)
+    local ioNumber = name:match("sophisticatedstorage:storage_io_(%d+)")
 
-    if x < 1 then
-        x = 1
+    if ioNumber then
+        return "Soph Storage " .. tostring(tonumber(ioNumber) + 1)
     end
 
-    if #text > w - x + 1 then
-        text = text:sub(1, w - x + 1)
+    if name:find("sophisticatedstorage:storage_io") then
+        return "Soph Storage"
     end
 
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(colors.black)
-    monitor.setTextColor(color or colors.white)
-    monitor.write(text)
+    local short = name:match(":(.+)$") or name
+    short = short:gsub("_", " ")
+
+    if #short > 20 then
+        short = short:sub(1, 20)
+    end
+
+    return short
 end
 
-local function fill(x, y, width, color)
-    local screenWidth = monitor.getSize()
+local function categoryFor(itemName)
+    local namespace, id = itemName:match("^([^:]+):(.+)$")
 
-    width = math.min(width, screenWidth - x + 1)
+    namespace = namespace or "minecraft"
+    id = id or itemName
 
-    if width <= 0 then
-        return
+    -- CREATE + Create addons
+    if namespace == "create"
+        or namespace:find("^create")
+        or namespace:find("railway")
+        or namespace:find("locometal")
+    then
+        return "Create"
     end
 
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(color)
-    monitor.write(string.rep(" ", width))
-    monitor.setBackgroundColor(colors.black)
+    -- FOOD
+    if id:find("apple")
+        or id:find("bread")
+        or id:find("beef")
+        or id:find("pork")
+        or id:find("chicken")
+        or id:find("mutton")
+        or id:find("rabbit")
+        or id:find("fish")
+        or id:find("salmon")
+        or id:find("cod")
+        or id:find("potato")
+        or id:find("carrot")
+        or id:find("beetroot")
+        or id:find("melon")
+        or id:find("berry")
+        or id:find("tomato")
+        or id:find("cabbage")
+        or id:find("onion")
+        or id:find("food")
+        or id:find("stew")
+        or id:find("soup")
+        or id:find("cookie")
+        or id:find("cake")
+    then
+        return "Food"
+    end
+
+    -- WOOD
+    if id:find("log")
+        or id:find("wood")
+        or id:find("planks")
+        or id:find("sapling")
+        or id:find("leaves")
+        or id:find("stem")
+        or id:find("hyphae")
+        or id:find("bamboo")
+    then
+        return "Wood"
+    end
+
+    -- ORES / GEMS
+    if id:find("ore")
+        or id:find("ingot")
+        or id:find("nugget")
+        or id:find("diamond")
+        or id:find("emerald")
+        or id:find("quartz")
+        or id:find("coal")
+        or id:find("raw_")
+        or id:find("gem")
+        or id:find("crystal")
+        or id:find("dust")
+    then
+        return "Ores/Gems"
+    end
+
+    -- ARMOR
+    if id:find("helmet")
+        or id:find("chestplate")
+        or id:find("leggings")
+        or id:find("boots")
+    then
+        return "Armor"
+    end
+
+    -- TOOLS
+    if id:find("pickaxe")
+        or id:find("shovel")
+        or id:find("hoe")
+        or id:find("shears")
+        or id:find("fishing_rod")
+        or id:find("wrench")
+    then
+        return "Tools"
+    end
+
+    -- WEAPONS
+    if id:find("sword")
+        or id:find("bow")
+        or id:find("crossbow")
+        or id:find("trident")
+        or id:find("gun")
+    then
+        return "Weapons"
+    end
+
+    -- POTIONS
+    if id:find("potion")
+        or id:find("elixir")
+    then
+        return "Potions"
+    end
+
+    -- COMMON BLOCK NAMES
+    if id:find("stone")
+        or id:find("dirt")
+        or id:find("sand")
+        or id:find("gravel")
+        or id:find("brick")
+        or id:find("concrete")
+        or id:find("terracotta")
+        or id:find("glass")
+        or id:find("deepslate")
+        or id:find("tuff")
+        or id:find("cobble")
+    then
+        return "Blocks"
+    end
+
+    return "Misc"
 end
 
-local function bar(x, y, width, percent, color)
-    percent = math.max(0, math.min(1, percent or 0))
-
-    fill(x, y, width, colors.gray)
-
-    local amount = math.floor(width * percent)
-
-    if amount > 0 then
-        fill(x, y, amount, color or colors.lime)
-    end
-end
-
-local function cleanName(name)
-    name = tostring(name or "unknown")
-
-    local namespaceRemoved = name:match(":(.+)$")
-
-    if namespaceRemoved then
-        name = namespaceRemoved
+local function getCapacity(name, inv, forceRefresh)
+    if not forceRefresh and capacityCache[name] then
+        return capacityCache[name]
     end
 
-    name = name:gsub("_", " ")
+    local okSize, size = pcall(inv.size)
 
-    return name
-end
-
-local function drawHistory(x, y, width)
-    if #history < 1 then
-        return
+    if not okSize or not size then
+        return 0, 0
     end
 
-    local maxValue = 1
-    local minValue = history[1]
+    local itemCapacity = 0
 
-    for _, value in ipairs(history) do
-        maxValue = math.max(maxValue, value)
-        minValue = math.min(minValue, value)
-    end
+    for slot = 1, size do
+        local okLimit, limit = pcall(inv.getItemLimit, slot)
 
-    local range = math.max(1, maxValue - minValue)
-
-    local startIndex = math.max(1, #history - width + 1)
-
-    local px = x
-
-    for i = startIndex, #history do
-        local ratio = (history[i] - minValue) / range
-
-        local symbol = "_"
-
-        if ratio >= 0.80 then
-            symbol = "#"
-        elseif ratio >= 0.60 then
-            symbol = "+"
-        elseif ratio >= 0.40 then
-            symbol = "="
-        elseif ratio >= 0.20 then
-            symbol = "-"
-        end
-
-        writeAt(px, y, symbol, colors.lime)
-        px = px + 1
-    end
-end
-
-local function drawOffline()
-    monitor.setBackgroundColor(colors.black)
-    monitor.clear()
-
-    local w, h = monitor.getSize()
-
-    writeAt(2, 2, "REAL CRAFT STORAGE", colors.orange)
-    writeAt(2, 4, "WAITING FOR STORAGE SERVER...", colors.yellow)
-
-    writeAt(
-        2,
-        6,
-        "Wireless modem: " .. MODEM_SIDE,
-        colors.lightGray
-    )
-
-    writeAt(
-        2,
-        7,
-        "Protocol: " .. PROTOCOL,
-        colors.lightGray
-    )
-end
-
-local function draw(data)
-    monitor.setBackgroundColor(colors.black)
-    monitor.clear()
-
-    local w, h = monitor.getSize()
-
-    local usedSlots = tonumber(data.usedSlots) or 0
-    local totalSlots = tonumber(data.totalSlots) or 0
-    local totalItems = tonumber(data.totalItems) or 0
-    local rate = tonumber(data.itemsPerMinute) or 0
-
-    local percent = 0
-
-    if totalSlots > 0 then
-        percent = usedSlots / totalSlots
-    end
-
-    table.insert(history, usedSlots)
-
-    if #history > math.max(40, w) then
-        table.remove(history, 1)
-    end
-
-    ------------------------------------------------
-    -- HEADER
-    ------------------------------------------------
-
-    writeAt(2, 1, "REAL CRAFT", colors.orange)
-    writeAt(13, 1, "STORAGE", colors.white)
-
-    local time = textutils.formatTime(os.time(), true)
-    writeAt(w - #time, 1, time, colors.lightGray)
-
-    ------------------------------------------------
-    -- MAIN STORAGE
-    ------------------------------------------------
-
-    local percentageColor = colors.lime
-
-    if percent >= 0.90 then
-        percentageColor = colors.red
-    elseif percent >= 0.75 then
-        percentageColor = colors.orange
-    end
-
-    writeAt(
-        2,
-        3,
-        tostring(math.floor(percent * 100)) .. "%",
-        percentageColor
-    )
-
-    writeAt(2, 4, "FULL", colors.gray)
-
-    writeAt(
-        11,
-        3,
-        comma(usedSlots) ..
-        " / " ..
-        comma(totalSlots) ..
-        " slots used",
-        colors.white
-    )
-
-    bar(
-        11,
-        4,
-        math.max(10, w - 13),
-        percent,
-        percentageColor
-    )
-
-    writeAt(
-        11,
-        5,
-        short(totalItems) .. " items",
-        colors.lightGray
-    )
-
-    if rate > 0 then
-        writeAt(
-            29,
-            5,
-            "+" .. short(rate) .. " items/min",
-            colors.lime
-        )
-    elseif rate < 0 then
-        writeAt(
-            29,
-            5,
-            short(rate) .. " items/min",
-            colors.red
-        )
-    else
-        writeAt(
-            29,
-            5,
-            "0 items/min",
-            colors.gray
-        )
-    end
-
-    ------------------------------------------------
-    -- STORAGE GRAPH
-    ------------------------------------------------
-
-    writeAt(2, 7, "SLOTS USED - RECENT", colors.gray)
-
-    drawHistory(
-        2,
-        8,
-        math.max(10, w - 3)
-    )
-
-    ------------------------------------------------
-    -- TOP ITEMS
-    ------------------------------------------------
-
-    writeAt(2, 10, "TOP ITEMS", colors.gray)
-
-    local topItems = data.topItems or {}
-
-    local maxItemsShown = math.min(8, #topItems)
-
-    for i = 1, maxItemsShown do
-        local item = topItems[i]
-        local name = cleanName(item.name)
-
-        if #name > 22 then
-            name = name:sub(1, 22)
-        end
-
-        writeAt(
-            2,
-            10 + i,
-            string.format("%-22s", name),
-            colors.white
-        )
-
-        writeAt(
-            26,
-            10 + i,
-            short(item.count),
-            colors.lightGray
-        )
-    end
-
-    ------------------------------------------------
-    -- NETWORK INFO
-    ------------------------------------------------
-
-    local infoX = math.max(38, math.floor(w * 0.58))
-
-    writeAt(infoX, 10, "NETWORK", colors.gray)
-
-    writeAt(
-        infoX,
-        11,
-        "Inventories: " .. tostring(data.inventories or 1),
-        colors.white
-    )
-
-    writeAt(
-        infoX,
-        12,
-        "Item types: " .. tostring(data.itemTypes or 0),
-        colors.white
-    )
-
-    writeAt(
-        infoX,
-        13,
-        "Total items: " .. short(totalItems),
-        colors.white
-    )
-
-    writeAt(
-        infoX,
-        14,
-        "Slots used: " .. comma(usedSlots),
-        colors.white
-    )
-
-    ------------------------------------------------
-    -- STATUS
-    ------------------------------------------------
-
-    if h >= 2 then
-        if percent >= 0.95 then
-            writeAt(
-                2,
-                h,
-                "ALERT: STORAGE CRITICALLY FULL",
-                colors.red
-            )
-        elseif percent >= 0.85 then
-            writeAt(
-                2,
-                h,
-                "WARNING: STORAGE GETTING FULL",
-                colors.orange
-            )
+        if okLimit and limit then
+            itemCapacity = itemCapacity + limit
         else
-            writeAt(
-                2,
-                h,
-                "WIRELESS STORAGE LINK ONLINE",
-                colors.green
-            )
+            itemCapacity = itemCapacity + 64
         end
     end
+
+    capacityCache[name] = {
+        slots = size,
+        items = itemCapacity
+    }
+
+    return capacityCache[name]
 end
 
-drawOffline()
+local function sortTopItems(itemTotals)
+    local result = {}
+
+    for name, count in pairs(itemTotals) do
+        table.insert(result, {
+            name = name,
+            count = count
+        })
+    end
+
+    table.sort(result, function(a, b)
+        return a.count > b.count
+    end)
+
+    while #result > 10 do
+        table.remove(result)
+    end
+
+    return result
+end
+
+-- ------------------------------------------------------------
+-- Scanner
+-- ------------------------------------------------------------
+
+local function scanStorage()
+    local currentTime = os.epoch("utc")
+
+    local forceCapacityRefresh =
+        currentTime - lastCapacityRefresh >=
+        (CAPACITY_REFRESH_SECONDS * 1000)
+
+    if forceCapacityRefresh then
+        lastCapacityRefresh = currentTime
+    end
+
+    local data = {
+        totalItems = 0,
+        usedSlots = 0,
+        totalSlots = 0,
+
+        itemCapacity = 0,
+
+        itemTypes = 0,
+        inventories = 0,
+
+        itemsPerMinute = 0,
+        slotsPerMinute = 0,
+
+        topItems = {},
+        categories = {},
+        storageUnits = {},
+
+        timestamp = currentTime
+    }
+
+    local itemTotals = {}
+
+    local categoryTotals = {
+        ["Wood"] = 0,
+        ["Ores/Gems"] = 0,
+        ["Tools"] = 0,
+        ["Misc"] = 0,
+        ["Armor"] = 0,
+        ["Potions"] = 0,
+        ["Blocks"] = 0,
+        ["Create"] = 0,
+        ["Food"] = 0,
+        ["Weapons"] = 0
+    }
+
+    local names = peripheral.getNames()
+
+    for _, name in ipairs(names) do
+        if isInventory(name) and not isIgnored(name) then
+            local inv = peripheral.wrap(name)
+
+            if inv then
+                local okList, contents = pcall(inv.list)
+
+                if okList and contents then
+                    data.inventories = data.inventories + 1
+
+                    local capacity =
+                        getCapacity(name, inv, forceCapacityRefresh)
+
+                    local unitUsedSlots = 0
+                    local unitItems = 0
+
+                    data.totalSlots =
+                        data.totalSlots + (capacity.slots or 0)
+
+                    data.itemCapacity =
+                        data.itemCapacity + (capacity.items or 0)
+
+                    for _, item in pairs(contents) do
+                        unitUsedSlots = unitUsedSlots + 1
+                        unitItems = unitItems + item.count
+
+                        data.usedSlots = data.usedSlots + 1
+                        data.totalItems =
+                            data.totalItems + item.count
+
+                        if itemTotals[item.name] == nil then
+                            itemTotals[item.name] = 0
+                            data.itemTypes =
+                                data.itemTypes + 1
+                        end
+
+                        itemTotals[item.name] =
+                            itemTotals[item.name] + item.count
+
+                        local category =
+                            categoryFor(item.name)
+
+                        categoryTotals[category] =
+                            categoryTotals[category]
+                            + item.count
+                    end
+
+                    table.insert(data.storageUnits, {
+                        name = friendlyStorageName(name),
+                        peripheral = name,
+                        usedSlots = unitUsedSlots,
+                        totalSlots = capacity.slots or 0,
+                        items = unitItems
+                    })
+                end
+            end
+        end
+    end
+
+    -- Calculate rate
+    if previousTotalItems ~= nil then
+        local elapsedMinutes =
+            (currentTime - previousTime) / 60000
+
+        if elapsedMinutes > 0 then
+            data.itemsPerMinute =
+                math.floor(
+                    (data.totalItems - previousTotalItems)
+                    / elapsedMinutes
+                )
+
+            data.slotsPerMinute =
+                math.floor(
+                    (data.usedSlots - previousUsedSlots)
+                    / elapsedMinutes
+                )
+        end
+    end
+
+    previousTotalItems = data.totalItems
+    previousUsedSlots = data.usedSlots
+    previousTime = currentTime
+
+    data.topItems = sortTopItems(itemTotals)
+    data.categories = categoryTotals
+
+    table.sort(data.storageUnits, function(a, b)
+        local ap =
+            a.totalSlots > 0
+            and a.usedSlots / a.totalSlots
+            or 0
+
+        local bp =
+            b.totalSlots > 0
+            and b.usedSlots / b.totalSlots
+            or 0
+
+        return ap > bp
+    end)
+
+    return data
+end
+
+-- ------------------------------------------------------------
+-- Startup
+-- ------------------------------------------------------------
+
+term.clear()
+term.setCursorPos(1, 1)
+
+print("COOK'S STORAGE SERVER")
+print("----------------------")
+print("Computer: #" .. os.getComputerID())
+print("Display:  #1")
+print("Wireless: " .. WIRELESS_MODEM)
+print("")
+print("Scanning connected inventories...")
+print("")
+
+-- ------------------------------------------------------------
+-- Loop
+-- ------------------------------------------------------------
 
 while true do
-    local sender, message, protocol =
-        rednet.receive(PROTOCOL, 10)
+    local data = scanStorage()
 
-    if sender and type(message) == "table" then
-        draw(message)
+    local sent =
+        rednet.send(
+            DISPLAY_ID,
+            data,
+            PROTOCOL
+        )
+
+    term.setCursorPos(1, 8)
+    term.clearLine()
+    print("Inventories: " .. data.inventories)
+
+    term.clearLine()
+    print("Items: " .. data.totalItems)
+
+    term.clearLine()
+    print(
+        "Slots: "
+        .. data.usedSlots
+        .. "/"
+        .. data.totalSlots
+    )
+
+    term.clearLine()
+
+    if sent then
+        print("Display #1: ONLINE ")
     else
-        drawOffline()
+        print("Display #1: OFFLINE")
     end
+
+    sleep(REFRESH_SECONDS)
 end
