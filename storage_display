@@ -1,0 +1,404 @@
+-- REAL Craft Wireless Storage Display
+-- Computer #2
+-- Wireless modem: FRONT
+-- Advanced Monitor: RIGHT
+
+local MODEM_SIDE = "front"
+local MONITOR_SIDE = "right"
+local PROTOCOL = "realcraft_storage"
+
+rednet.open(MODEM_SIDE)
+
+local monitor = peripheral.wrap(MONITOR_SIDE)
+
+if not monitor then
+    error("Monitor not found on " .. MONITOR_SIDE)
+end
+
+monitor.setTextScale(0.5)
+monitor.setBackgroundColor(colors.black)
+monitor.clear()
+
+local history = {}
+
+local function comma(n)
+    n = math.floor(tonumber(n) or 0)
+
+    local formatted = tostring(n)
+
+    while true do
+        local new, k = formatted:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+        formatted = new
+
+        if k == 0 then
+            break
+        end
+    end
+
+    return formatted
+end
+
+local function short(n)
+    n = tonumber(n) or 0
+
+    if math.abs(n) >= 1000000 then
+        return string.format("%.1fM", n / 1000000)
+    elseif math.abs(n) >= 1000 then
+        return string.format("%.1fK", n / 1000)
+    end
+
+    return tostring(math.floor(n))
+end
+
+local function writeAt(x, y, text, color)
+    local w, h = monitor.getSize()
+
+    if y < 1 or y > h or x > w then
+        return
+    end
+
+    text = tostring(text)
+
+    if x < 1 then
+        x = 1
+    end
+
+    if #text > w - x + 1 then
+        text = text:sub(1, w - x + 1)
+    end
+
+    monitor.setCursorPos(x, y)
+    monitor.setBackgroundColor(colors.black)
+    monitor.setTextColor(color or colors.white)
+    monitor.write(text)
+end
+
+local function fill(x, y, width, color)
+    local screenWidth = monitor.getSize()
+
+    width = math.min(width, screenWidth - x + 1)
+
+    if width <= 0 then
+        return
+    end
+
+    monitor.setCursorPos(x, y)
+    monitor.setBackgroundColor(color)
+    monitor.write(string.rep(" ", width))
+    monitor.setBackgroundColor(colors.black)
+end
+
+local function bar(x, y, width, percent, color)
+    percent = math.max(0, math.min(1, percent or 0))
+
+    fill(x, y, width, colors.gray)
+
+    local amount = math.floor(width * percent)
+
+    if amount > 0 then
+        fill(x, y, amount, color or colors.lime)
+    end
+end
+
+local function cleanName(name)
+    name = tostring(name or "unknown")
+
+    local namespaceRemoved = name:match(":(.+)$")
+
+    if namespaceRemoved then
+        name = namespaceRemoved
+    end
+
+    name = name:gsub("_", " ")
+
+    return name
+end
+
+local function drawHistory(x, y, width)
+    if #history < 1 then
+        return
+    end
+
+    local maxValue = 1
+    local minValue = history[1]
+
+    for _, value in ipairs(history) do
+        maxValue = math.max(maxValue, value)
+        minValue = math.min(minValue, value)
+    end
+
+    local range = math.max(1, maxValue - minValue)
+
+    local startIndex = math.max(1, #history - width + 1)
+
+    local px = x
+
+    for i = startIndex, #history do
+        local ratio = (history[i] - minValue) / range
+
+        local symbol = "_"
+
+        if ratio >= 0.80 then
+            symbol = "#"
+        elseif ratio >= 0.60 then
+            symbol = "+"
+        elseif ratio >= 0.40 then
+            symbol = "="
+        elseif ratio >= 0.20 then
+            symbol = "-"
+        end
+
+        writeAt(px, y, symbol, colors.lime)
+        px = px + 1
+    end
+end
+
+local function drawOffline()
+    monitor.setBackgroundColor(colors.black)
+    monitor.clear()
+
+    local w, h = monitor.getSize()
+
+    writeAt(2, 2, "REAL CRAFT STORAGE", colors.orange)
+    writeAt(2, 4, "WAITING FOR STORAGE SERVER...", colors.yellow)
+
+    writeAt(
+        2,
+        6,
+        "Wireless modem: " .. MODEM_SIDE,
+        colors.lightGray
+    )
+
+    writeAt(
+        2,
+        7,
+        "Protocol: " .. PROTOCOL,
+        colors.lightGray
+    )
+end
+
+local function draw(data)
+    monitor.setBackgroundColor(colors.black)
+    monitor.clear()
+
+    local w, h = monitor.getSize()
+
+    local usedSlots = tonumber(data.usedSlots) or 0
+    local totalSlots = tonumber(data.totalSlots) or 0
+    local totalItems = tonumber(data.totalItems) or 0
+    local rate = tonumber(data.itemsPerMinute) or 0
+
+    local percent = 0
+
+    if totalSlots > 0 then
+        percent = usedSlots / totalSlots
+    end
+
+    table.insert(history, usedSlots)
+
+    if #history > math.max(40, w) then
+        table.remove(history, 1)
+    end
+
+    ------------------------------------------------
+    -- HEADER
+    ------------------------------------------------
+
+    writeAt(2, 1, "REAL CRAFT", colors.orange)
+    writeAt(13, 1, "STORAGE", colors.white)
+
+    local time = textutils.formatTime(os.time(), true)
+    writeAt(w - #time, 1, time, colors.lightGray)
+
+    ------------------------------------------------
+    -- MAIN STORAGE
+    ------------------------------------------------
+
+    local percentageColor = colors.lime
+
+    if percent >= 0.90 then
+        percentageColor = colors.red
+    elseif percent >= 0.75 then
+        percentageColor = colors.orange
+    end
+
+    writeAt(
+        2,
+        3,
+        tostring(math.floor(percent * 100)) .. "%",
+        percentageColor
+    )
+
+    writeAt(2, 4, "FULL", colors.gray)
+
+    writeAt(
+        11,
+        3,
+        comma(usedSlots) ..
+        " / " ..
+        comma(totalSlots) ..
+        " slots used",
+        colors.white
+    )
+
+    bar(
+        11,
+        4,
+        math.max(10, w - 13),
+        percent,
+        percentageColor
+    )
+
+    writeAt(
+        11,
+        5,
+        short(totalItems) .. " items",
+        colors.lightGray
+    )
+
+    if rate > 0 then
+        writeAt(
+            29,
+            5,
+            "+" .. short(rate) .. " items/min",
+            colors.lime
+        )
+    elseif rate < 0 then
+        writeAt(
+            29,
+            5,
+            short(rate) .. " items/min",
+            colors.red
+        )
+    else
+        writeAt(
+            29,
+            5,
+            "0 items/min",
+            colors.gray
+        )
+    end
+
+    ------------------------------------------------
+    -- STORAGE GRAPH
+    ------------------------------------------------
+
+    writeAt(2, 7, "SLOTS USED - RECENT", colors.gray)
+
+    drawHistory(
+        2,
+        8,
+        math.max(10, w - 3)
+    )
+
+    ------------------------------------------------
+    -- TOP ITEMS
+    ------------------------------------------------
+
+    writeAt(2, 10, "TOP ITEMS", colors.gray)
+
+    local topItems = data.topItems or {}
+
+    local maxItemsShown = math.min(8, #topItems)
+
+    for i = 1, maxItemsShown do
+        local item = topItems[i]
+        local name = cleanName(item.name)
+
+        if #name > 22 then
+            name = name:sub(1, 22)
+        end
+
+        writeAt(
+            2,
+            10 + i,
+            string.format("%-22s", name),
+            colors.white
+        )
+
+        writeAt(
+            26,
+            10 + i,
+            short(item.count),
+            colors.lightGray
+        )
+    end
+
+    ------------------------------------------------
+    -- NETWORK INFO
+    ------------------------------------------------
+
+    local infoX = math.max(38, math.floor(w * 0.58))
+
+    writeAt(infoX, 10, "NETWORK", colors.gray)
+
+    writeAt(
+        infoX,
+        11,
+        "Inventories: " .. tostring(data.inventories or 1),
+        colors.white
+    )
+
+    writeAt(
+        infoX,
+        12,
+        "Item types: " .. tostring(data.itemTypes or 0),
+        colors.white
+    )
+
+    writeAt(
+        infoX,
+        13,
+        "Total items: " .. short(totalItems),
+        colors.white
+    )
+
+    writeAt(
+        infoX,
+        14,
+        "Slots used: " .. comma(usedSlots),
+        colors.white
+    )
+
+    ------------------------------------------------
+    -- STATUS
+    ------------------------------------------------
+
+    if h >= 2 then
+        if percent >= 0.95 then
+            writeAt(
+                2,
+                h,
+                "ALERT: STORAGE CRITICALLY FULL",
+                colors.red
+            )
+        elseif percent >= 0.85 then
+            writeAt(
+                2,
+                h,
+                "WARNING: STORAGE GETTING FULL",
+                colors.orange
+            )
+        else
+            writeAt(
+                2,
+                h,
+                "WIRELESS STORAGE LINK ONLINE",
+                colors.green
+            )
+        end
+    end
+end
+
+drawOffline()
+
+while true do
+    local sender, message, protocol =
+        rednet.receive(PROTOCOL, 10)
+
+    if sender and type(message) == "table" then
+        draw(message)
+    else
+        drawOffline()
+    end
+end
