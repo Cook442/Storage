@@ -1,7 +1,14 @@
 -- ============================================================
--- COOK'S 8-BALL POOL
--- CC:Tweaked Touchscreen Edition
--- Designed for 57x38 Advanced Monitor
+-- COOK'S 8-BALL POOL V2
+-- CC:Tweaked Touchscreen Pool
+-- Designed for ~57x38 Advanced Monitor
+--
+-- NEW:
+--  * Stronger shots
+--  * Cue-ball spin / English
+--  * Better solids and stripes
+--  * Better pockets / rails
+--  * Improved table appearance
 -- ============================================================
 
 local monitor = peripheral.find("monitor")
@@ -18,27 +25,34 @@ local W, H = monitor.getSize()
 -- TABLE
 --------------------------------------------------
 
-local LEFT   = 3
-local RIGHT  = W - 2
+local LEFT   = 4
+local RIGHT  = W - 3
 local TOP    = 5
-local BOTTOM = H - 8
+local BOTTOM = H - 9
 
-local BALL_RADIUS = 0.55
-local POCKET_RADIUS = 1.35
+local BALL_RADIUS   = 0.52
+local POCKET_RADIUS = 1.45
 
-local FRICTION = 0.965
-local STOP_SPEED = 0.035
-local BOUNCE = 0.92
+-- Slightly more energetic than V1
+local FRICTION = 0.972
+local STOP_SPEED = 0.028
+local BOUNCE = 0.94
+
+--------------------------------------------------
+-- GAME STATE
+--------------------------------------------------
 
 local balls = {}
 
 local currentPlayer = 1
+
 local playerGroups = {
     [1] = nil,
     [2] = nil
 }
 
 local power = 55
+
 local aimX = nil
 local aimY = nil
 
@@ -50,7 +64,53 @@ local pocketedThisTurn = {}
 local scratchThisTurn = false
 
 --------------------------------------------------
--- COLORS
+-- SPIN
+--------------------------------------------------
+
+local spinModes = {
+    {
+        name = "CENTER",
+        symbol = "O",
+        x = 0,
+        y = 0
+    },
+
+    {
+        name = "TOP",
+        symbol = "^",
+        x = 0,
+        y = 1
+    },
+
+    {
+        name = "DRAW",
+        symbol = "v",
+        x = 0,
+        y = -1
+    },
+
+    {
+        name = "LEFT",
+        symbol = "<",
+        x = -1,
+        y = 0
+    },
+
+    {
+        name = "RIGHT",
+        symbol = ">",
+        x = 1,
+        y = 0
+    }
+}
+
+local spinIndex = 1
+
+local cueSpinX = 0
+local cueSpinY = 0
+
+--------------------------------------------------
+-- BALL COLORS
 --------------------------------------------------
 
 local BALL_COLORS = {
@@ -119,7 +179,14 @@ end
 
 local function centered(y, text, fg, bg)
     local x = math.floor((W - #text) / 2) + 1
-    writeAt(x, y, text, fg, bg)
+
+    writeAt(
+        x,
+        y,
+        text,
+        fg,
+        bg
+    )
 end
 
 --------------------------------------------------
@@ -128,7 +195,16 @@ end
 
 local buttons = {}
 
-local function addButton(name, x1, y1, x2, y2, text, color)
+local function addButton(
+    name,
+    x1,
+    y1,
+    x2,
+    y2,
+    text,
+    color
+)
+
     buttons[name] = {
         x1 = x1,
         y1 = y1,
@@ -139,40 +215,48 @@ local function addButton(name, x1, y1, x2, y2, text, color)
     }
 end
 
-local function inside(b, x, y)
+local function inside(button, x, y)
     return
-        x >= b.x1 and
-        x <= b.x2 and
-        y >= b.y1 and
-        y <= b.y2
+        x >= button.x1
+        and x <= button.x2
+        and y >= button.y1
+        and y <= button.y2
 end
 
-local function drawButton(b)
-    for y = b.y1, b.y2 do
+local function drawButton(button)
+    for y = button.y1, button.y2 do
         fill(
-            b.x1,
+            button.x1,
             y,
-            b.x2 - b.x1 + 1,
-            b.color
+            button.x2 - button.x1 + 1,
+            button.color
         )
     end
 
     local cx =
         math.floor(
-            (b.x1 + b.x2 - #b.text + 1) / 2
+            (
+                button.x1
+                + button.x2
+                - #button.text
+                + 1
+            ) / 2
         )
 
     local cy =
         math.floor(
-            (b.y1 + b.y2) / 2
+            (
+                button.y1
+                + button.y2
+            ) / 2
         )
 
     writeAt(
         cx,
         cy,
-        b.text,
+        button.text,
         colors.white,
-        b.color
+        button.color
     )
 end
 
@@ -216,6 +300,7 @@ end
 local function ballGroup(number)
     if number >= 1 and number <= 7 then
         return "SOLIDS"
+
     elseif number >= 9 and number <= 15 then
         return "STRIPES"
     end
@@ -231,23 +316,28 @@ local function setupBalls()
     balls = {}
 
     local cueX =
-        LEFT + (RIGHT - LEFT) * 0.25
+        LEFT
+        + (RIGHT - LEFT) * 0.24
 
     local cueY =
         (TOP + BOTTOM) / 2
 
     table.insert(
         balls,
-        makeBall(0, cueX, cueY)
+        makeBall(
+            0,
+            cueX,
+            cueY
+        )
     )
 
     local rackX =
-        LEFT + (RIGHT - LEFT) * 0.70
+        LEFT
+        + (RIGHT - LEFT) * 0.67
 
     local rackY =
         (TOP + BOTTOM) / 2
 
-    -- Alternating arrangement with 8 in center.
     local rack = {
         {1},
         {9, 2},
@@ -256,40 +346,54 @@ local function setupBalls()
         {6, 13, 7, 14, 15}
     }
 
-    local spacingX = 1.25
-    local spacingY = 1.15
+    local spacingX = 1.20
+    local spacingY = 1.10
 
     for column, columnBalls in ipairs(rack) do
         local x =
             rackX
-            + (column - 1) * spacingX
+            + (column - 1)
+            * spacingX
 
         local total =
             #columnBalls
 
         local startY =
             rackY
-            - ((total - 1) * spacingY / 2)
+            - (
+                (total - 1)
+                * spacingY
+                / 2
+            )
 
         for row, number in ipairs(columnBalls) do
             local y =
                 startY
-                + (row - 1) * spacingY
+                + (row - 1)
+                * spacingY
 
             table.insert(
                 balls,
-                makeBall(number, x, y)
+                makeBall(
+                    number,
+                    x,
+                    y
+                )
             )
         end
     end
 end
 
 --------------------------------------------------
--- DRAW TABLE
+-- TABLE
 --------------------------------------------------
 
 local function drawTable()
-    -- Felt
+
+    --------------------------------------------------
+    -- FELT
+    --------------------------------------------------
+
     for y = TOP, BOTTOM do
         fill(
             LEFT,
@@ -299,8 +403,19 @@ local function drawTable()
         )
     end
 
-    -- Rails
-    for x = LEFT - 1, RIGHT + 1 do
+    --------------------------------------------------
+    -- OUTER WOOD RAILS
+    --------------------------------------------------
+
+    for x = LEFT - 2, RIGHT + 2 do
+        writeAt(
+            x,
+            TOP - 2,
+            " ",
+            colors.white,
+            colors.brown
+        )
+
         writeAt(
             x,
             TOP - 1,
@@ -316,40 +431,93 @@ local function drawTable()
             colors.white,
             colors.brown
         )
-    end
 
-    for y = TOP - 1, BOTTOM + 1 do
         writeAt(
-            LEFT - 1,
-            y,
+            x,
+            BOTTOM + 2,
             " ",
             colors.white,
             colors.brown
         )
+    end
 
-        writeAt(
+    for y = TOP - 2, BOTTOM + 2 do
+        fill(
+            LEFT - 2,
+            y,
+            2,
+            colors.brown
+        )
+
+        fill(
             RIGHT + 1,
             y,
-            " ",
-            colors.white,
+            2,
             colors.brown
         )
     end
 
-    -- Pockets
-    for _, p in ipairs(pockets) do
+    --------------------------------------------------
+    -- INNER CUSHION
+    --------------------------------------------------
+
+    for x = LEFT, RIGHT do
         writeAt(
-            math.floor(p.x + 0.5),
-            math.floor(p.y + 0.5),
+            x,
+            TOP,
             " ",
             colors.white,
+            colors.lime
+        )
+
+        writeAt(
+            x,
+            BOTTOM,
+            " ",
+            colors.white,
+            colors.lime
+        )
+    end
+
+    --------------------------------------------------
+    -- POCKETS
+    --------------------------------------------------
+
+    for _, p in ipairs(pockets) do
+        local px =
+            math.floor(
+                p.x + 0.5
+            )
+
+        local py =
+            math.floor(
+                p.y + 0.5
+            )
+
+        -- black hole
+        writeAt(
+            px,
+            py,
+            " ",
+            colors.black,
             colors.black
         )
+
+        -- small shadow under hole
+        if py + 1 <= BOTTOM + 1 then
+            writeAt(
+                px,
+                py + 1,
+                ".",
+                colors.gray,
+                colors.brown
+            )
+        end
     end
 end
 
 --------------------------------------------------
--- DRAW BALL
+-- BETTER BALL DRAWING
 --------------------------------------------------
 
 local function drawBall(ball)
@@ -358,21 +526,36 @@ local function drawBall(ball)
     end
 
     local x =
-        math.floor(ball.x + 0.5)
+        math.floor(
+            ball.x + 0.5
+        )
 
     local y =
-        math.floor(ball.y + 0.5)
+        math.floor(
+            ball.y + 0.5
+        )
+
+    --------------------------------------------------
+    -- CUE BALL
+    --------------------------------------------------
 
     if ball.number == 0 then
         writeAt(
             x,
             y,
             "O",
-            colors.black,
+            colors.lightGray,
             colors.white
         )
 
-    elseif ball.number == 8 then
+        return
+    end
+
+    --------------------------------------------------
+    -- 8 BALL
+    --------------------------------------------------
+
+    if ball.number == 8 then
         writeAt(
             x,
             y,
@@ -381,31 +564,54 @@ local function drawBall(ball)
             colors.black
         )
 
-    elseif ball.number >= 9 then
-        local numberText =
-            tostring(ball.number)
+        return
+    end
 
-        writeAt(
-            x,
-            y,
-            numberText:sub(-1),
-            BALL_COLORS[ball.number],
-            colors.white
-        )
+    local ballColor =
+        BALL_COLORS[ball.number]
 
-    else
+    --------------------------------------------------
+    -- SOLIDS
+    --------------------------------------------------
+
+    if ball.number <= 7 then
         writeAt(
             x,
             y,
             tostring(ball.number),
             colors.white,
-            BALL_COLORS[ball.number]
+            ballColor
+        )
+
+    --------------------------------------------------
+    -- STRIPES
+    --------------------------------------------------
+
+    else
+        -- white background immediately identifies stripes.
+        --
+        -- Number itself uses the ball's actual stripe color.
+
+        local digit =
+            tostring(ball.number)
+
+        if #digit > 1 then
+            digit =
+                digit:sub(-1)
+        end
+
+        writeAt(
+            x,
+            y,
+            digit,
+            ballColor,
+            colors.white
         )
     end
 end
 
 --------------------------------------------------
--- AIM LINE
+-- AIM GUIDE
 --------------------------------------------------
 
 local function drawAimLine()
@@ -417,17 +623,26 @@ local function drawAimLine()
         return
     end
 
-    local cue = getCueBall()
+    local cue =
+        getCueBall()
 
-    if not cue or cue.pocketed then
+    if not cue
+        or cue.pocketed
+    then
         return
     end
 
-    local dx = aimX - cue.x
-    local dy = aimY - cue.y
+    local dx =
+        aimX - cue.x
+
+    local dy =
+        aimY - cue.y
 
     local length =
-        math.sqrt(dx * dx + dy * dy)
+        math.sqrt(
+            dx * dx
+            + dy * dy
+        )
 
     if length < 0.1 then
         return
@@ -436,7 +651,7 @@ local function drawAimLine()
     dx = dx / length
     dy = dy / length
 
-    for i = 2, 12 do
+    for i = 2, 15 do
         local px =
             cue.x + dx * i
 
@@ -448,6 +663,7 @@ local function drawAimLine()
             and py > TOP
             and py < BOTTOM
         then
+
             writeAt(
                 math.floor(px + 0.5),
                 math.floor(py + 0.5),
@@ -456,6 +672,24 @@ local function drawAimLine()
                 colors.green
             )
         end
+    end
+
+    --------------------------------------------------
+    -- Aiming target marker
+    --------------------------------------------------
+
+    if aimX >= LEFT
+        and aimX <= RIGHT
+        and aimY >= TOP
+        and aimY <= BOTTOM
+    then
+        writeAt(
+            aimX,
+            aimY,
+            "+",
+            colors.yellow,
+            colors.green
+        )
     end
 end
 
@@ -467,12 +701,13 @@ local function drawHeader()
     writeAt(
         2,
         1,
-        "COOK'S 8-BALL",
+        "COOK'S POOL",
         colors.white
     )
 
     local turn =
-        "PLAYER " .. currentPlayer
+        "PLAYER "
+        .. currentPlayer
 
     centered(
         1,
@@ -499,12 +734,14 @@ local function drawHeader()
             "BALLS MOVING...",
             colors.yellow
         )
+
     elseif gameOver then
         centered(
             2,
             "GAME OVER",
             colors.red
         )
+
     else
         centered(
             2,
@@ -520,19 +757,29 @@ end
 
 addButton(
     "minus",
-    4,
+    2,
     H - 5,
-    11,
+    8,
     H - 3,
     "-",
     colors.gray
 )
 
 addButton(
-    "shoot",
-    20,
+    "spin",
+    10,
     H - 5,
-    37,
+    20,
+    H - 3,
+    "SPIN",
+    colors.blue
+)
+
+addButton(
+    "shoot",
+    22,
+    H - 5,
+    39,
     H - 3,
     "SHOOT",
     colors.red
@@ -540,63 +787,97 @@ addButton(
 
 addButton(
     "plus",
-    46,
+    41,
     H - 5,
-    53,
+    47,
     H - 3,
     "+",
     colors.gray
 )
 
 local function drawControls()
+
+    --------------------------------------------------
+    -- POWER
+    --------------------------------------------------
+
     writeAt(
-        3,
+        2,
         H - 7,
         "POWER",
         colors.gray
     )
 
-    local barWidth = 38
+    local powerBarX = 9
+    local powerBarWidth = 28
 
     fill(
-        10,
+        powerBarX,
         H - 7,
-        barWidth,
+        powerBarWidth,
         colors.gray
     )
 
     local amount =
         math.floor(
-            barWidth * power / 100
+            powerBarWidth
+            * power
+            / 100
         )
+
+    local powerColor =
+        colors.lime
+
+    if power >= 80 then
+        powerColor =
+            colors.red
+
+    elseif power >= 55 then
+        powerColor =
+            colors.orange
+    end
 
     if amount > 0 then
         fill(
-            10,
+            powerBarX,
             H - 7,
             amount,
-            power >= 80
-                and colors.red
-                or colors.orange
+            powerColor
         )
     end
 
     writeAt(
-        50,
+        39,
         H - 7,
         power .. "%",
         colors.white
     )
 
+    --------------------------------------------------
+    -- SPIN STATUS
+    --------------------------------------------------
+
+    local spin =
+        spinModes[spinIndex]
+
+    writeAt(
+        46,
+        H - 7,
+        spin.symbol,
+        colors.cyan
+    )
+
+    writeAt(
+        48,
+        H - 7,
+        spin.name,
+        colors.lightGray
+    )
+
     drawButton(buttons.minus)
+    drawButton(buttons.spin)
     drawButton(buttons.shoot)
     drawButton(buttons.plus)
-
-    centered(
-        H - 1,
-        "TOUCH TABLE TO AIM",
-        colors.gray
-    )
 end
 
 --------------------------------------------------
@@ -608,7 +889,6 @@ local function draw()
 
     drawHeader()
     drawTable()
-
     drawAimLine()
 
     for _, ball in ipairs(balls) do
@@ -619,14 +899,16 @@ local function draw()
 
     if gameOver then
         centered(
-            14,
-            "PLAYER " .. winner .. " WINS!",
+            13,
+            "PLAYER "
+                .. winner
+                .. " WINS!",
             colors.yellow,
             colors.black
         )
 
         centered(
-            16,
+            15,
             "TOUCH SHOOT TO PLAY AGAIN",
             colors.white,
             colors.black
@@ -638,12 +920,22 @@ end
 -- DISTANCE
 --------------------------------------------------
 
-local function distance(x1, y1, x2, y2)
-    local dx = x2 - x1
-    local dy = y2 - y1
+local function distance(
+    x1,
+    y1,
+    x2,
+    y2
+)
+
+    local dx =
+        x2 - x1
+
+    local dy =
+        y2 - y1
 
     return math.sqrt(
-        dx * dx + dy * dy
+        dx * dx
+        + dy * dy
     )
 end
 
@@ -652,20 +944,23 @@ end
 --------------------------------------------------
 
 local function checkPocket(ball)
-    for _, p in ipairs(pockets) do
+    for _, pocket in ipairs(pockets) do
+
         if distance(
             ball.x,
             ball.y,
-            p.x,
-            p.y
+            pocket.x,
+            pocket.y
         ) <= POCKET_RADIUS
         then
+
             ball.pocketed = true
             ball.vx = 0
             ball.vy = 0
 
             if ball.number == 0 then
                 scratchThisTurn = true
+
             else
                 table.insert(
                     pocketedThisTurn,
@@ -681,44 +976,61 @@ local function checkPocket(ball)
 end
 
 --------------------------------------------------
--- BALL COLLISIONS
+-- COLLISIONS
 --------------------------------------------------
 
 local function collideBalls(a, b)
-    if a.pocketed or b.pocketed then
+    if a.pocketed
+        or b.pocketed
+    then
         return
     end
 
-    local dx = b.x - a.x
-    local dy = b.y - a.y
+    local dx =
+        b.x - a.x
+
+    local dy =
+        b.y - a.y
 
     local dist =
-        math.sqrt(dx * dx + dy * dy)
+        math.sqrt(
+            dx * dx
+            + dy * dy
+        )
 
     local minimum =
         BALL_RADIUS * 2
 
-    if dist <= 0 or dist >= minimum then
+    if dist <= 0
+        or dist >= minimum
+    then
         return
     end
 
-    local nx = dx / dist
-    local ny = dy / dist
+    local nx =
+        dx / dist
+
+    local ny =
+        dy / dist
 
     local overlap =
         minimum - dist
 
     a.x =
-        a.x - nx * overlap / 2
+        a.x
+        - nx * overlap / 2
 
     a.y =
-        a.y - ny * overlap / 2
+        a.y
+        - ny * overlap / 2
 
     b.x =
-        b.x + nx * overlap / 2
+        b.x
+        + nx * overlap / 2
 
     b.y =
-        b.y + ny * overlap / 2
+        b.y
+        + ny * overlap / 2
 
     local relativeVX =
         b.vx - a.vx
@@ -726,37 +1038,185 @@ local function collideBalls(a, b)
     local relativeVY =
         b.vy - a.vy
 
-    local velocityAlongNormal =
+    local normalVelocity =
         relativeVX * nx
         + relativeVY * ny
 
-    if velocityAlongNormal > 0 then
+    if normalVelocity > 0 then
         return
     end
 
     local impulse =
-        -velocityAlongNormal * 0.96
+        -normalVelocity * 0.98
 
     a.vx =
-        a.vx - impulse * nx
+        a.vx
+        - impulse * nx
 
     a.vy =
-        a.vy - impulse * ny
+        a.vy
+        - impulse * ny
 
     b.vx =
-        b.vx + impulse * nx
+        b.vx
+        + impulse * nx
 
     b.vy =
-        b.vy + impulse * ny
+        b.vy
+        + impulse * ny
+
+    --------------------------------------------------
+    -- CUE BALL TOP / DRAW SPIN
+    --------------------------------------------------
+
+    local cue =
+        getCueBall()
+
+    if cue then
+
+        local other = nil
+
+        if a == cue then
+            other = b
+
+        elseif b == cue then
+            other = a
+        end
+
+        if other then
+
+            --------------------------------------------------
+            -- TOPSPIN
+            --------------------------------------------------
+
+            if cueSpinY > 0 then
+                cue.vx =
+                    cue.vx
+                    + nx * 0.16
+
+                cue.vy =
+                    cue.vy
+                    + ny * 0.16
+
+            --------------------------------------------------
+            -- DRAW / BACKSPIN
+            --------------------------------------------------
+
+            elseif cueSpinY < 0 then
+                cue.vx =
+                    cue.vx
+                    - nx * 0.24
+
+                cue.vy =
+                    cue.vy
+                    - ny * 0.24
+            end
+        end
+    end
 end
 
 --------------------------------------------------
--- PHYSICS STEP
+-- RAIL PHYSICS + ENGLISH
+--------------------------------------------------
+
+local function bounceRails(ball)
+
+    local isCue =
+        ball.number == 0
+
+    --------------------------------------------------
+    -- LEFT
+    --------------------------------------------------
+
+    if ball.x < LEFT + BALL_RADIUS then
+
+        ball.x =
+            LEFT + BALL_RADIUS
+
+        ball.vx =
+            math.abs(ball.vx)
+            * BOUNCE
+
+        if isCue then
+            ball.vy =
+                ball.vy
+                + cueSpinX * 0.12
+        end
+
+    --------------------------------------------------
+    -- RIGHT
+    --------------------------------------------------
+
+    elseif ball.x > RIGHT - BALL_RADIUS then
+
+        ball.x =
+            RIGHT - BALL_RADIUS
+
+        ball.vx =
+            -math.abs(ball.vx)
+            * BOUNCE
+
+        if isCue then
+            ball.vy =
+                ball.vy
+                - cueSpinX * 0.12
+        end
+    end
+
+    --------------------------------------------------
+    -- TOP
+    --------------------------------------------------
+
+    if ball.y < TOP + BALL_RADIUS then
+
+        ball.y =
+            TOP + BALL_RADIUS
+
+        ball.vy =
+            math.abs(ball.vy)
+            * BOUNCE
+
+        if isCue then
+            ball.vx =
+                ball.vx
+                - cueSpinX * 0.12
+        end
+
+    --------------------------------------------------
+    -- BOTTOM
+    --------------------------------------------------
+
+    elseif ball.y > BOTTOM - BALL_RADIUS then
+
+        ball.y =
+            BOTTOM - BALL_RADIUS
+
+        ball.vy =
+            -math.abs(ball.vy)
+            * BOUNCE
+
+        if isCue then
+            ball.vx =
+                ball.vx
+                + cueSpinX * 0.12
+        end
+    end
+end
+
+--------------------------------------------------
+-- PHYSICS
 --------------------------------------------------
 
 local function physicsStep()
+
+    --------------------------------------------------
+    -- MOVE
+    --------------------------------------------------
+
     for _, ball in ipairs(balls) do
+
         if not ball.pocketed then
+
             ball.x =
                 ball.x + ball.vx
 
@@ -764,42 +1224,14 @@ local function physicsStep()
                 ball.y + ball.vy
 
             if not checkPocket(ball) then
-                if ball.x < LEFT + BALL_RADIUS then
-                    ball.x =
-                        LEFT + BALL_RADIUS
-
-                    ball.vx =
-                        math.abs(ball.vx)
-                        * BOUNCE
-
-                elseif ball.x > RIGHT - BALL_RADIUS then
-                    ball.x =
-                        RIGHT - BALL_RADIUS
-
-                    ball.vx =
-                        -math.abs(ball.vx)
-                        * BOUNCE
-                end
-
-                if ball.y < TOP + BALL_RADIUS then
-                    ball.y =
-                        TOP + BALL_RADIUS
-
-                    ball.vy =
-                        math.abs(ball.vy)
-                        * BOUNCE
-
-                elseif ball.y > BOTTOM - BALL_RADIUS then
-                    ball.y =
-                        BOTTOM - BALL_RADIUS
-
-                    ball.vy =
-                        -math.abs(ball.vy)
-                        * BOUNCE
-                end
+                bounceRails(ball)
             end
         end
     end
+
+    --------------------------------------------------
+    -- BALL COLLISIONS
+    --------------------------------------------------
 
     for i = 1, #balls - 1 do
         for j = i + 1, #balls do
@@ -810,27 +1242,36 @@ local function physicsStep()
         end
     end
 
-    local anythingMoving = false
+    --------------------------------------------------
+    -- FRICTION
+    --------------------------------------------------
+
+    local anythingMoving =
+        false
 
     for _, ball in ipairs(balls) do
+
         if not ball.pocketed then
+
             ball.vx =
                 ball.vx * FRICTION
 
             ball.vy =
                 ball.vy * FRICTION
 
-            local speed =
+            local velocity =
                 math.sqrt(
                     ball.vx * ball.vx
                     + ball.vy * ball.vy
                 )
 
-            if speed < STOP_SPEED then
+            if velocity < STOP_SPEED then
                 ball.vx = 0
                 ball.vy = 0
+
             else
-                anythingMoving = true
+                anythingMoving =
+                    true
             end
         end
     end
@@ -839,15 +1280,17 @@ local function physicsStep()
 end
 
 --------------------------------------------------
--- GROUP STATUS
+-- GROUP REMAINING
 --------------------------------------------------
 
 local function groupRemaining(group)
     local remaining = 0
 
     for _, ball in ipairs(balls) do
+
         if not ball.pocketed
-            and ballGroup(ball.number) == group
+            and ballGroup(ball.number)
+                == group
         then
             remaining =
                 remaining + 1
@@ -858,44 +1301,58 @@ local function groupRemaining(group)
 end
 
 --------------------------------------------------
--- RESET CUE BALL
+-- RESET CUE
 --------------------------------------------------
 
 local function resetCue()
-    local cue = getCueBall()
+    local cue =
+        getCueBall()
 
     cue.pocketed = false
     cue.vx = 0
     cue.vy = 0
 
     cue.x =
-        LEFT + (RIGHT - LEFT) * 0.25
+        LEFT
+        + (RIGHT - LEFT)
+        * 0.24
 
     cue.y =
-        (TOP + BOTTOM) / 2
+        (TOP + BOTTOM)
+        / 2
 end
 
 --------------------------------------------------
--- END TURN
+-- FINISH TURN
 --------------------------------------------------
 
 local function finishTurn()
-    local keepTurn = false
+
+    local keepTurn =
+        false
 
     --------------------------------------------------
     -- 8 BALL
     --------------------------------------------------
 
-    for _, number in ipairs(pocketedThisTurn) do
+    for _, number
+        in ipairs(pocketedThisTurn)
+    do
+
         if number == 8 then
+
             local group =
-                playerGroups[currentPlayer]
+                playerGroups[
+                    currentPlayer
+                ]
 
             if group
                 and groupRemaining(group) == 0
                 and not scratchThisTurn
             then
-                winner = currentPlayer
+                winner =
+                    currentPlayer
+
             else
                 winner =
                     currentPlayer == 1
@@ -904,22 +1361,29 @@ local function finishTurn()
             end
 
             gameOver = true
+
             return
         end
     end
 
     --------------------------------------------------
-    -- ASSIGN GROUPS
+    -- ASSIGN SOLIDS / STRIPES
     --------------------------------------------------
 
     if not playerGroups[1] then
-        for _, number in ipairs(pocketedThisTurn) do
+
+        for _, number
+            in ipairs(pocketedThisTurn)
+        do
+
             local group =
                 ballGroup(number)
 
             if group then
-                playerGroups[currentPlayer] =
-                    group
+
+                playerGroups[
+                    currentPlayer
+                ] = group
 
                 local other =
                     currentPlayer == 1
@@ -937,29 +1401,53 @@ local function finishTurn()
     end
 
     --------------------------------------------------
-    -- DETERMINE TURN
+    -- KEEP TURN?
     --------------------------------------------------
 
     if not scratchThisTurn then
+
         local group =
-            playerGroups[currentPlayer]
+            playerGroups[
+                currentPlayer
+            ]
 
         if group then
-            for _, number in ipairs(pocketedThisTurn) do
-                if ballGroup(number) == group then
-                    keepTurn = true
+
+            for _, number
+                in ipairs(
+                    pocketedThisTurn
+                )
+            do
+
+                if ballGroup(number)
+                    == group
+                then
+                    keepTurn =
+                        true
+
                     break
                 end
             end
-        elseif #pocketedThisTurn > 0 then
+
+        elseif
+            #pocketedThisTurn > 0
+        then
             keepTurn = true
         end
     end
+
+    --------------------------------------------------
+    -- SCRATCH
+    --------------------------------------------------
 
     if scratchThisTurn then
         resetCue()
         keepTurn = false
     end
+
+    --------------------------------------------------
+    -- SWITCH PLAYER
+    --------------------------------------------------
 
     if not keepTurn then
         currentPlayer =
@@ -973,6 +1461,11 @@ local function finishTurn()
 
     aimX = nil
     aimY = nil
+
+    cueSpinX = 0
+    cueSpinY = 0
+
+    spinIndex = 1
 end
 
 --------------------------------------------------
@@ -980,17 +1473,21 @@ end
 --------------------------------------------------
 
 local function shoot()
-    if moving or gameOver then
+
+    if moving
+        or gameOver
+        or not aimX
+        or not aimY
+    then
         return
     end
 
-    if not aimX or not aimY then
-        return
-    end
+    local cue =
+        getCueBall()
 
-    local cue = getCueBall()
-
-    if not cue or cue.pocketed then
+    if not cue
+        or cue.pocketed
+    then
         return
     end
 
@@ -1001,7 +1498,10 @@ local function shoot()
         aimY - cue.y
 
     local length =
-        math.sqrt(dx * dx + dy * dy)
+        math.sqrt(
+            dx * dx
+            + dy * dy
+        )
 
     if length < 0.5 then
         return
@@ -1010,15 +1510,34 @@ local function shoot()
     dx = dx / length
     dy = dy / length
 
+    --------------------------------------------------
+    -- STRONGER POWER
+    --------------------------------------------------
+
     local strength =
-        0.18
-        + (power / 100) * 0.72
+        0.26
+        + (
+            power / 100
+        ) * 1.04
 
     cue.vx =
         dx * strength
 
     cue.vy =
         dy * strength
+
+    --------------------------------------------------
+    -- APPLY SELECTED SPIN
+    --------------------------------------------------
+
+    local spin =
+        spinModes[spinIndex]
+
+    cueSpinX =
+        spin.x
+
+    cueSpinY =
+        spin.y
 
     pocketedThisTurn = {}
     scratchThisTurn = false
@@ -1031,6 +1550,7 @@ end
 --------------------------------------------------
 
 local function resetGame()
+
     currentPlayer = 1
 
     playerGroups = {
@@ -1040,10 +1560,16 @@ local function resetGame()
 
     power = 55
 
+    spinIndex = 1
+
+    cueSpinX = 0
+    cueSpinY = 0
+
     aimX = nil
     aimY = nil
 
     moving = false
+
     gameOver = false
     winner = nil
 
@@ -1051,6 +1577,7 @@ local function resetGame()
     scratchThisTurn = false
 
     setupBalls()
+
     draw()
 end
 
@@ -1059,11 +1586,17 @@ end
 --------------------------------------------------
 
 local function handleTouch(x, y)
+
     if moving then
         return
     end
 
+    --------------------------------------------------
+    -- GAME OVER
+    --------------------------------------------------
+
     if gameOver then
+
         if inside(
             buttons.shoot,
             x,
@@ -1075,7 +1608,16 @@ local function handleTouch(x, y)
         return
     end
 
-    if inside(buttons.minus, x, y) then
+    --------------------------------------------------
+    -- POWER DOWN
+    --------------------------------------------------
+
+    if inside(
+        buttons.minus,
+        x,
+        y
+    ) then
+
         power =
             math.max(
                 10,
@@ -1083,10 +1625,20 @@ local function handleTouch(x, y)
             )
 
         draw()
+
         return
     end
 
-    if inside(buttons.plus, x, y) then
+    --------------------------------------------------
+    -- POWER UP
+    --------------------------------------------------
+
+    if inside(
+        buttons.plus,
+        x,
+        y
+    ) then
+
         power =
             math.min(
                 100,
@@ -1094,20 +1646,60 @@ local function handleTouch(x, y)
             )
 
         draw()
+
         return
     end
 
-    if inside(buttons.shoot, x, y) then
-        shoot()
+    --------------------------------------------------
+    -- SPIN
+    --------------------------------------------------
+
+    if inside(
+        buttons.spin,
+        x,
+        y
+    ) then
+
+        spinIndex =
+            spinIndex + 1
+
+        if spinIndex
+            > #spinModes
+        then
+            spinIndex = 1
+        end
+
         draw()
+
         return
     end
+
+    --------------------------------------------------
+    -- SHOOT
+    --------------------------------------------------
+
+    if inside(
+        buttons.shoot,
+        x,
+        y
+    ) then
+
+        shoot()
+        draw()
+
+        return
+    end
+
+    --------------------------------------------------
+    -- AIM
+    --------------------------------------------------
 
     if x >= LEFT
         and x <= RIGHT
         and y >= TOP
         and y <= BOTTOM
     then
+
         aimX = x
         aimY = y
 
@@ -1120,21 +1712,27 @@ end
 --------------------------------------------------
 
 local function physicsLoop()
+
     while true do
+
         if moving then
+
             local stillMoving =
                 physicsStep()
 
             draw()
 
             if not stillMoving then
+
                 moving = false
 
                 finishTurn()
+
                 draw()
             end
 
-            sleep(0.05)
+            sleep(0.045)
+
         else
             sleep(0.05)
         end
@@ -1146,27 +1744,41 @@ end
 --------------------------------------------------
 
 local function touchLoop()
-    while true do
-        local _, side, x, y =
-            os.pullEvent("monitor_touch")
 
-        handleTouch(x, y)
+    while true do
+
+        local _, side, x, y =
+            os.pullEvent(
+                "monitor_touch"
+            )
+
+        handleTouch(
+            x,
+            y
+        )
     end
 end
 
 --------------------------------------------------
--- COMPUTER
+-- COMPUTER TERMINAL
 --------------------------------------------------
 
 term.clear()
 term.setCursorPos(1, 1)
 
-print("COOK'S 8-BALL")
-print("----------------")
+print("COOK'S 8-BALL POOL V2")
+print("----------------------")
 print("")
-print("Touchscreen pool online.")
+print("Touchscreen arcade online.")
 print("")
 print("Monitor: " .. W .. " x " .. H)
+print("")
+print("Spin modes:")
+print("CENTER")
+print("TOP")
+print("DRAW")
+print("LEFT")
+print("RIGHT")
 print("")
 print("Ctrl+T to stop.")
 
@@ -1174,7 +1786,9 @@ print("Ctrl+T to stop.")
 -- START
 --------------------------------------------------
 
-math.randomseed(os.epoch("utc"))
+math.randomseed(
+    os.epoch("utc")
+)
 
 resetGame()
 
