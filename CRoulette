@@ -1,161 +1,441 @@
 -- ============================================================
--- COOK'S ROULETTE - DIAMOND CASINO V8
--- 57x67 Advanced Monitor
+-- COOK'S ROULETTE - DIAMOND CASINO V9
+-- 57x67 Main Monitor + Separate History Monitor
+--
+-- MAIN MONITOR    = monitor_0
+-- HISTORY MONITOR = right
 --
 -- PLAYER CHEST = minecraft:chest_0
 -- HOUSE BANK   = minecraft:chest_1
 --
 -- 1 Diamond = 100 Credits
 --
--- Features:
---  * Multiple simultaneous bets
---  * ALL IN
---  * Diamond deposits / cashout
---  * Transfer-first anti-scam system
---  * Smooth wheel animation
---  * VISIBLE BALL POSITION = ACTUAL RESULT
+-- Visible ball position determines the actual result.
 -- ============================================================
 
 local MONITOR = "monitor_0"
+local HISTORY_MONITOR = "right"
+
 local PLAYER_CHEST = "minecraft:chest_0"
 local BANK_CHEST = "minecraft:chest_1"
 
 local DIAMOND = "minecraft:diamond"
 local DIAMOND_VALUE = 100
 
-local monitor = peripheral.wrap(MONITOR)
-local playerChest = peripheral.wrap(PLAYER_CHEST)
-local bankChest = peripheral.wrap(BANK_CHEST)
+local monitor =
+    peripheral.wrap(MONITOR)
+
+local historyMonitor =
+    peripheral.wrap(HISTORY_MONITOR)
+
+local playerChest =
+    peripheral.wrap(PLAYER_CHEST)
+
+local bankChest =
+    peripheral.wrap(BANK_CHEST)
 
 if not monitor then
-    error("Monitor not found: " .. MONITOR)
+    error(
+        "Main monitor not found: "
+        .. MONITOR
+    )
+end
+
+if not historyMonitor then
+    error(
+        "History monitor not found: "
+        .. HISTORY_MONITOR
+    )
 end
 
 if not playerChest then
-    error("Player chest not found: " .. PLAYER_CHEST)
+    error(
+        "Player chest not found: "
+        .. PLAYER_CHEST
+    )
 end
 
 if not bankChest then
-    error("House bank not found: " .. BANK_CHEST)
+    error(
+        "House bank not found: "
+        .. BANK_CHEST
+    )
 end
 
 monitor.setTextScale(0.5)
 
-local W, H = monitor.getSize()
+local W, H =
+    monitor.getSize()
 
 -- ============================================================
--- POLISHED CASINO PALETTE
+-- MAIN MONITOR PALETTE
 -- ============================================================
 
-monitor.setPaletteColor(colors.black,     0x090B0B)
-monitor.setPaletteColor(colors.red,       0x991F2F)
-monitor.setPaletteColor(colors.green,     0x064B35)
-monitor.setPaletteColor(colors.yellow,    0xD8B85A)
-monitor.setPaletteColor(colors.brown,     0x4A2818)
-monitor.setPaletteColor(colors.orange,    0xB7792B)
-monitor.setPaletteColor(colors.gray,      0x34383A)
-monitor.setPaletteColor(colors.lightGray, 0x9A9D98)
-monitor.setPaletteColor(colors.white,     0xF1E9D2)
-monitor.setPaletteColor(colors.blue,      0x173A52)
-monitor.setPaletteColor(colors.lime,      0x42B883)
+monitor.setPaletteColor(
+    colors.black,
+    0x090B0B
+)
+
+monitor.setPaletteColor(
+    colors.red,
+    0x991F2F
+)
+
+monitor.setPaletteColor(
+    colors.green,
+    0x064B35
+)
+
+monitor.setPaletteColor(
+    colors.yellow,
+    0xD8B85A
+)
+
+monitor.setPaletteColor(
+    colors.brown,
+    0x4A2818
+)
+
+monitor.setPaletteColor(
+    colors.orange,
+    0xB7792B
+)
+
+monitor.setPaletteColor(
+    colors.gray,
+    0x34383A
+)
+
+monitor.setPaletteColor(
+    colors.lightGray,
+    0x9A9D98
+)
+
+monitor.setPaletteColor(
+    colors.white,
+    0xF1E9D2
+)
+
+monitor.setPaletteColor(
+    colors.blue,
+    0x173A52
+)
+
+monitor.setPaletteColor(
+    colors.lime,
+    0x42B883
+)
+
+-- ============================================================
+-- HISTORY MONITOR PALETTE
+-- ============================================================
+
+historyMonitor.setPaletteColor(
+    colors.black,
+    0x090B0B
+)
+
+historyMonitor.setPaletteColor(
+    colors.red,
+    0xC62F43
+)
+
+historyMonitor.setPaletteColor(
+    colors.green,
+    0x26A269
+)
+
+historyMonitor.setPaletteColor(
+    colors.yellow,
+    0xD8B85A
+)
+
+historyMonitor.setPaletteColor(
+    colors.white,
+    0xF1E9D2
+)
+
+historyMonitor.setPaletteColor(
+    colors.lightGray,
+    0xA9AAA5
+)
+
+historyMonitor.setPaletteColor(
+    colors.gray,
+    0x414544
+)
 
 -- ============================================================
 -- GAME STATE
 -- ============================================================
 
 local credits = 0
+
 local betAmount = 25
 
 local bets = {}
 
 local spinning = false
+
 local resultNumber = nil
+
 local winningIndex = nil
 
-local message = "INSERT DIAMONDS TO PLAY"
+local message =
+    "INSERT DIAMONDS TO PLAY"
 
 -- ============================================================
--- EUROPEAN ROULETTE
+-- HISTORY
+-- ============================================================
+
+local history = {}
+
+local MAX_HISTORY = 15
+
+-- ============================================================
+-- EUROPEAN ROULETTE WHEEL
 -- ============================================================
 
 local wheel = {
-    0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,
-    8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,
-    28,12,35,3,26
+    0,
+    32,
+    15,
+    19,
+    4,
+    21,
+    2,
+    25,
+    17,
+    34,
+    6,
+    27,
+    13,
+    36,
+    11,
+    30,
+    8,
+    23,
+    10,
+    5,
+    24,
+    16,
+    33,
+    1,
+    20,
+    14,
+    31,
+    9,
+    22,
+    18,
+    29,
+    7,
+    28,
+    12,
+    35,
+    3,
+    26
 }
 
 local reds = {
-    [1]=true,[3]=true,[5]=true,[7]=true,[9]=true,
-    [12]=true,[14]=true,[16]=true,[18]=true,
-    [19]=true,[21]=true,[23]=true,[25]=true,[27]=true,
-    [30]=true,[32]=true,[34]=true,[36]=true
+
+    [1] = true,
+    [3] = true,
+    [5] = true,
+    [7] = true,
+    [9] = true,
+
+    [12] = true,
+    [14] = true,
+    [16] = true,
+    [18] = true,
+
+    [19] = true,
+    [21] = true,
+    [23] = true,
+    [25] = true,
+    [27] = true,
+
+    [30] = true,
+    [32] = true,
+    [34] = true,
+    [36] = true
 }
 
 local function numberColor(n)
+
     if n == 0 then
+
         return colors.green
+
     elseif reds[n] then
+
         return colors.red
+
     else
+
         return colors.black
     end
 end
 
 local function numberColorName(n)
+
     if n == 0 then
+
         return "GREEN"
+
     elseif reds[n] then
+
         return "RED"
+
     else
+
         return "BLACK"
     end
 end
 
 -- ============================================================
--- DRAW HELPERS
+-- HISTORY COLORS
 -- ============================================================
 
-local function writeAt(x, y, text, fg, bg)
-    x = math.floor(x)
-    y = math.floor(y)
-    text = tostring(text)
+local function historyColor(n)
 
-    if x < 1 or y < 1 or x > W or y > H then
+    if n == 0 then
+
+        return colors.green
+
+    elseif reds[n] then
+
+        return colors.red
+
+    else
+
+        return colors.lightGray
+    end
+end
+
+-- ============================================================
+-- MAIN DRAW HELPERS
+-- ============================================================
+
+local function writeAt(
+    x,
+    y,
+    text,
+    fg,
+    bg
+)
+
+    x =
+        math.floor(x)
+
+    y =
+        math.floor(y)
+
+    text =
+        tostring(text)
+
+    if x < 1
+        or y < 1
+        or x > W
+        or y > H
+    then
+
         return
     end
 
-    if #text > W - x + 1 then
-        text = text:sub(1, W - x + 1)
+    if #text >
+        W - x + 1
+    then
+
+        text =
+            text:sub(
+                1,
+                W - x + 1
+            )
     end
 
-    monitor.setCursorPos(x, y)
-    monitor.setTextColor(fg or colors.white)
-    monitor.setBackgroundColor(bg or colors.black)
-    monitor.write(text)
+    monitor.setCursorPos(
+        x,
+        y
+    )
+
+    monitor.setTextColor(
+        fg
+        or colors.white
+    )
+
+    monitor.setBackgroundColor(
+        bg
+        or colors.black
+    )
+
+    monitor.write(
+        text
+    )
 end
 
-local function fill(x, y, width, color)
-    x = math.floor(x)
-    y = math.floor(y)
-    width = math.floor(width)
+local function fill(
+    x,
+    y,
+    width,
+    color
+)
 
-    if x < 1 or y < 1 or y > H or width <= 0 then
+    x =
+        math.floor(x)
+
+    y =
+        math.floor(y)
+
+    width =
+        math.floor(width)
+
+    if x < 1
+        or y < 1
+        or y > H
+        or width <= 0
+    then
+
         return
     end
 
-    width = math.min(width, W - x + 1)
+    width =
+        math.min(
+            width,
+            W - x + 1
+        )
 
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(color)
-    monitor.write(string.rep(" ", width))
+    monitor.setCursorPos(
+        x,
+        y
+    )
+
+    monitor.setBackgroundColor(
+        color
+    )
+
+    monitor.write(
+        string.rep(
+            " ",
+            width
+        )
+    )
 end
 
-local function centered(y, text, fg, bg)
-    text = tostring(text)
+local function centered(
+    y,
+    text,
+    fg,
+    bg
+)
+
+    text =
+        tostring(text)
 
     local x =
         math.floor(
-            (W - #text) / 2
+            (W - #text)
+            / 2
         ) + 1
 
     writeAt(
@@ -168,8 +448,181 @@ local function centered(y, text, fg, bg)
 end
 
 local function clear()
-    monitor.setBackgroundColor(colors.black)
+
+    monitor.setBackgroundColor(
+        colors.black
+    )
+
     monitor.clear()
+end
+
+-- ============================================================
+-- HISTORY DRAW HELPERS
+-- ============================================================
+
+local function historyCentered(
+    y,
+    text,
+    color
+)
+
+    local hw, hh =
+        historyMonitor.getSize()
+
+    text =
+        tostring(text)
+
+    if y < 1
+        or y > hh
+    then
+
+        return
+    end
+
+    local x =
+        math.floor(
+            (hw - #text)
+            / 2
+        ) + 1
+
+    historyMonitor.setCursorPos(
+        x,
+        y
+    )
+
+    historyMonitor.setTextColor(
+        color
+        or colors.white
+    )
+
+    historyMonitor.setBackgroundColor(
+        colors.black
+    )
+
+    historyMonitor.write(
+        text
+    )
+end
+
+local function drawHistoryMonitor()
+
+    historyMonitor.setTextScale(
+        1
+    )
+
+    historyMonitor.setBackgroundColor(
+        colors.black
+    )
+
+    historyMonitor.clear()
+
+    local hw, hh =
+        historyMonitor.getSize()
+
+    --------------------------------------------------
+    -- TITLE
+    --------------------------------------------------
+
+    historyCentered(
+        2,
+        "COOK'S ROULETTE",
+        colors.yellow
+    )
+
+    historyCentered(
+        4,
+        "RECENT NUMBERS",
+        colors.white
+    )
+
+    --------------------------------------------------
+    -- DIVIDER
+    --------------------------------------------------
+
+    local divider =
+        "-----------------"
+
+    historyMonitor.setCursorPos(
+        math.floor(
+            (hw - #divider)
+            / 2
+        ) + 1,
+        5
+    )
+
+    historyMonitor.setTextColor(
+        colors.gray
+    )
+
+    historyMonitor.write(
+        divider
+    )
+
+    --------------------------------------------------
+    -- WAITING
+    --------------------------------------------------
+
+    if #history == 0 then
+
+        historyCentered(
+            8,
+            "WAITING FOR SPIN",
+            colors.gray
+        )
+
+        return
+    end
+
+    --------------------------------------------------
+    -- RECENT NUMBERS
+    --------------------------------------------------
+
+    local y = 7
+
+    for i, number
+        in ipairs(history)
+    do
+
+        if i > MAX_HISTORY
+            or y > hh
+        then
+
+            break
+        end
+
+        historyCentered(
+            y,
+            tostring(number),
+            historyColor(number)
+        )
+
+        y =
+            y + 2
+    end
+end
+
+-- ============================================================
+-- ADD HISTORY RESULT
+-- ============================================================
+
+local function addHistory(number)
+
+    table.insert(
+        history,
+        1,
+        number
+    )
+
+    while #history
+        > MAX_HISTORY
+    do
+
+        table.remove(
+            history
+        )
+    end
+
+    drawHistoryMonitor()
 end
 
 -- ============================================================
@@ -190,41 +643,64 @@ local function addButton(
 )
 
     buttons[name] = {
+
         x1 = x1,
         y1 = y1,
+
         x2 = x2,
         y2 = y2,
+
         text = text,
+
         color = color,
+
         data = data
     }
 end
 
-local function inside(button, x, y)
+local function inside(
+    button,
+    x,
+    y
+)
+
     return
+
         x >= button.x1
         and x <= button.x2
+
         and y >= button.y1
         and y <= button.y2
 end
 
-local function drawButton(button, selected)
+local function drawButton(
+    button,
+    selected
+)
 
     local bg =
+
         selected
         and colors.yellow
         or button.color
 
     local fg =
+
         selected
         and colors.black
         or colors.white
 
-    for y = button.y1, button.y2 do
+    for y =
+        button.y1,
+        button.y2
+    do
+
         fill(
             button.x1,
             y,
-            button.x2 - button.x1 + 1,
+            button.x2
+            - button.x1
+            + 1,
             bg
         )
     end
@@ -261,31 +737,48 @@ end
 -- ============================================================
 
 local function betKey(data)
+
     return
-        tostring(data.type)
+
+        tostring(
+            data.type
+        )
+
         .. ":"
-        .. tostring(data.value)
+
+        .. tostring(
+            data.value
+        )
 end
 
 local function isBetSelected(data)
+
     return
+
         bets[
             betKey(data)
         ] ~= nil
 end
 
 local function betCount()
+
     local count = 0
 
-    for _ in pairs(bets) do
-        count = count + 1
+    for _
+        in pairs(bets)
+    do
+
+        count =
+            count + 1
     end
 
     return count
 end
 
 local function totalStake()
+
     return
+
         betCount()
         * betAmount
 end
@@ -301,17 +794,23 @@ local function toggleBet(data)
 
     if bets[key] then
 
-        bets[key] = nil
+        bets[key] =
+            nil
 
     else
 
         bets[key] = {
-            type = data.type,
-            value = data.value
+
+            type =
+                data.type,
+
+            value =
+                data.value
         }
     end
 
     message =
+
         betCount()
         .. " BETS SELECTED"
 end
@@ -359,7 +858,8 @@ local function allIn()
 
     betAmount =
         math.floor(
-            credits / count
+            credits
+            / count
         )
 
     if betAmount <= 0 then
@@ -384,13 +884,19 @@ local function countDiamonds(inv)
 
     local total = 0
 
-    for _, item in pairs(
-        inv.list()
-    ) do
+    for _, item
+        in pairs(
+            inv.list()
+        )
+    do
 
-        if item.name == DIAMOND then
+        if item.name
+            == DIAMOND
+        then
+
             total =
-                total + item.count
+                total
+                + item.count
         end
     end
 
@@ -398,11 +904,19 @@ local function countDiamonds(inv)
 end
 
 local function houseDiamonds()
-    return countDiamonds(bankChest)
+
+    return
+        countDiamonds(
+            bankChest
+        )
 end
 
 local function playerDiamonds()
-    return countDiamonds(playerChest)
+
+    return
+        countDiamonds(
+            playerChest
+        )
 end
 
 -- ============================================================
@@ -417,11 +931,19 @@ local function depositDiamonds()
 
     local movedTotal = 0
 
-    for slot, item in pairs(
-        playerChest.list()
-    ) do
+    for slot, item
+        in pairs(
+            playerChest.list()
+        )
+    do
 
-        if item.name == DIAMOND then
+        if item.name
+            == DIAMOND
+        then
+
+            --------------------------------------------------
+            -- PHYSICALLY MOVE DIAMONDS FIRST
+            --------------------------------------------------
 
             local moved =
                 playerChest.pushItems(
@@ -431,17 +953,24 @@ local function depositDiamonds()
                 )
 
             movedTotal =
-                movedTotal + moved
+                movedTotal
+                + moved
         end
     end
+
+    --------------------------------------------------
+    -- ONLY ISSUE CREDITS FOR DIAMONDS THAT MOVED
+    --------------------------------------------------
 
     if movedTotal > 0 then
 
         local added =
-            movedTotal * DIAMOND_VALUE
+            movedTotal
+            * DIAMOND_VALUE
 
         credits =
-            credits + added
+            credits
+            + added
 
         message =
             "+"
@@ -452,7 +981,9 @@ local function depositDiamonds()
 
     else
 
-        if playerDiamonds() > 0 then
+        if playerDiamonds()
+            > 0
+        then
 
             message =
                 "HOUSE BANK FULL"
@@ -477,7 +1008,8 @@ local function cashOut()
 
     local wanted =
         math.floor(
-            credits / DIAMOND_VALUE
+            credits
+            / DIAMOND_VALUE
         )
 
     if wanted <= 0 then
@@ -494,21 +1026,29 @@ local function cashOut()
     local movedTotal =
         0
 
-    for slot, item in pairs(
-        bankChest.list()
-    ) do
+    for slot, item
+        in pairs(
+            bankChest.list()
+        )
+    do
 
         if remaining <= 0 then
             break
         end
 
-        if item.name == DIAMOND then
+        if item.name
+            == DIAMOND
+        then
 
             local request =
                 math.min(
                     item.count,
                     remaining
                 )
+
+            --------------------------------------------------
+            -- PHYSICALLY PAY DIAMONDS FIRST
+            --------------------------------------------------
 
             local moved =
                 bankChest.pushItems(
@@ -518,12 +1058,18 @@ local function cashOut()
                 )
 
             movedTotal =
-                movedTotal + moved
+                movedTotal
+                + moved
 
             remaining =
-                remaining - moved
+                remaining
+                - moved
         end
     end
+
+    --------------------------------------------------
+    -- ONLY REMOVE CREDITS FOR DIAMONDS ACTUALLY PAID
+    --------------------------------------------------
 
     if movedTotal > 0 then
 
@@ -532,7 +1078,8 @@ local function cashOut()
             * DIAMOND_VALUE
 
         credits =
-            credits - paidCredits
+            credits
+            - paidCredits
 
         message =
             "PAID "
@@ -541,7 +1088,9 @@ local function cashOut()
 
     else
 
-        if houseDiamonds() <= 0 then
+        if houseDiamonds()
+            <= 0
+        then
 
             message =
                 "HOUSE BANK EMPTY"
@@ -555,7 +1104,7 @@ local function cashOut()
 end
 
 -- ============================================================
--- WHEEL
+-- WHEEL POSITIONING
 -- ============================================================
 
 local wheelCX =
@@ -566,22 +1115,29 @@ local wheelCX =
 local wheelCY = 20
 
 local wheelPositions = {
+
     {  0,-14},
     {  5,-13},
     { 10,-11},
     { 14, -8},
     { 17, -4},
+
     { 18,  0},
+
     { 17,  4},
     { 14,  8},
     { 10, 11},
     {  5, 13},
+
     {  0, 14},
+
     { -5, 13},
     {-10, 11},
     {-14,  8},
     {-17,  4},
+
     {-18,  0},
+
     {-17, -4},
     {-14, -8},
     {-10,-11},
@@ -589,16 +1145,21 @@ local wheelPositions = {
 }
 
 local wheelIndex = 1
+
 local ballIndex = 1
 
 local function wrapWheel(i)
 
     while i < 1 do
-        i = i + #wheel
+
+        i =
+            i + #wheel
     end
 
     while i > #wheel do
-        i = i - #wheel
+
+        i =
+            i - #wheel
     end
 
     return i
@@ -607,11 +1168,19 @@ end
 local function wrapRing(i)
 
     while i < 1 do
-        i = i + #wheelPositions
+
+        i =
+            i
+            + #wheelPositions
     end
 
-    while i > #wheelPositions do
-        i = i - #wheelPositions
+    while i >
+        #wheelPositions
+    do
+
+        i =
+            i
+            - #wheelPositions
     end
 
     return i
@@ -623,7 +1192,12 @@ end
 
 local function drawWheel()
 
+    --------------------------------------------------
+    -- WALNUT OUTER FRAME
+    --------------------------------------------------
+
     for y = 5, 35 do
+
         fill(
             5,
             y,
@@ -632,7 +1206,12 @@ local function drawWheel()
         )
     end
 
+    --------------------------------------------------
+    -- GOLD TRIM
+    --------------------------------------------------
+
     for y = 6, 34 do
+
         fill(
             6,
             y,
@@ -641,7 +1220,12 @@ local function drawWheel()
         )
     end
 
+    --------------------------------------------------
+    -- EMERALD WHEEL
+    --------------------------------------------------
+
     for y = 7, 33 do
+
         fill(
             7,
             y,
@@ -650,7 +1234,12 @@ local function drawWheel()
         )
     end
 
+    --------------------------------------------------
+    -- BLACK CENTER
+    --------------------------------------------------
+
     for y = 13, 27 do
+
         fill(
             15,
             y,
@@ -659,10 +1248,15 @@ local function drawWheel()
         )
     end
 
+    --------------------------------------------------
+    -- CENTER HUB
+    --------------------------------------------------
+
     for y =
         wheelCY - 2,
         wheelCY + 2
     do
+
         fill(
             wheelCX - 3,
             y,
@@ -679,9 +1273,15 @@ local function drawWheel()
         colors.orange
     )
 
-    for i, pos in ipairs(
-        wheelPositions
-    ) do
+    --------------------------------------------------
+    -- NUMBER POCKETS
+    --------------------------------------------------
+
+    for i, pos
+        in ipairs(
+            wheelPositions
+        )
+    do
 
         local idx =
             wrapWheel(
@@ -708,7 +1308,8 @@ local function drawWheel()
             colors.white
 
         if winningIndex
-            and idx == winningIndex
+            and idx
+                == winningIndex
             and not spinning
         then
 
@@ -723,7 +1324,9 @@ local function drawWheel()
             tostring(n)
 
         if #text == 2 then
-            x = x - 1
+
+            x =
+                x - 1
         end
 
         writeAt(
@@ -734,6 +1337,10 @@ local function drawWheel()
             bg
         )
     end
+
+    --------------------------------------------------
+    -- WHITE BALL
+    --------------------------------------------------
 
     local bp =
         wheelPositions[
@@ -758,6 +1365,7 @@ end
 local function drawHeader()
 
     for y = 1, 3 do
+
         fill(
             1,
             y,
@@ -808,6 +1416,7 @@ end
 local function drawSummary()
 
     for y = 37, 40 do
+
         fill(
             1,
             y,
@@ -824,7 +1433,9 @@ local function drawSummary()
             colors.yellow
         )
 
-    elseif resultNumber ~= nil then
+    elseif resultNumber
+        ~= nil
+    then
 
         centered(
             37,
@@ -873,23 +1484,35 @@ end
 local numberCells = {}
 
 local GRID_Y = 43
+
 local CELL_W = 4
+
 local CELL_H = 2
 
 local function setupNumberGrid()
 
     numberCells = {}
 
+    --------------------------------------------------
+    -- ZERO
+    --------------------------------------------------
+
     table.insert(
         numberCells,
         {
             number = 0,
+
             x1 = 2,
             y1 = GRID_Y,
+
             x2 = 5,
             y2 = GRID_Y + 5
         }
     )
+
+    --------------------------------------------------
+    -- 1-36
+    --------------------------------------------------
 
     local n = 1
 
@@ -911,14 +1534,20 @@ local function setupNumberGrid()
                 numberCells,
                 {
                     number = n,
+
                     x1 = x,
                     y1 = y,
-                    x2 = x + CELL_W - 1,
-                    y2 = y + CELL_H - 1
+
+                    x2 =
+                        x + CELL_W - 1,
+
+                    y2 =
+                        y + CELL_H - 1
                 }
             )
 
-            n = n + 1
+            n =
+                n + 1
         end
     end
 end
@@ -927,13 +1556,19 @@ setupNumberGrid()
 
 local function drawNumberGrid()
 
-    for _, cell in ipairs(
-        numberCells
-    ) do
+    for _, cell
+        in ipairs(
+            numberCells
+        )
+    do
 
         local data = {
-            type = "number",
-            value = cell.number
+
+            type =
+                "number",
+
+            value =
+                cell.number
         }
 
         local selected =
@@ -942,6 +1577,7 @@ local function drawNumberGrid()
             )
 
         local bg =
+
             selected
             and colors.yellow
             or numberColor(
@@ -949,6 +1585,7 @@ local function drawNumberGrid()
             )
 
         local fg =
+
             selected
             and colors.black
             or colors.white
@@ -1010,7 +1647,10 @@ addButton(
     2,51,10,53,
     "RED",
     colors.red,
-    {type="color",value="RED"}
+    {
+        type="color",
+        value="RED"
+    }
 )
 
 addButton(
@@ -1018,7 +1658,10 @@ addButton(
     12,51,20,53,
     "BLACK",
     colors.black,
-    {type="color",value="BLACK"}
+    {
+        type="color",
+        value="BLACK"
+    }
 )
 
 addButton(
@@ -1026,7 +1669,10 @@ addButton(
     22,51,30,53,
     "ODD",
     colors.gray,
-    {type="parity",value="ODD"}
+    {
+        type="parity",
+        value="ODD"
+    }
 )
 
 addButton(
@@ -1034,7 +1680,10 @@ addButton(
     32,51,40,53,
     "EVEN",
     colors.gray,
-    {type="parity",value="EVEN"}
+    {
+        type="parity",
+        value="EVEN"
+    }
 )
 
 addButton(
@@ -1042,7 +1691,10 @@ addButton(
     42,51,50,53,
     "1-18",
     colors.gray,
-    {type="range",value="LOW"}
+    {
+        type="range",
+        value="LOW"
+    }
 )
 
 addButton(
@@ -1050,7 +1702,10 @@ addButton(
     2,55,10,57,
     "19-36",
     colors.gray,
-    {type="range",value="HIGH"}
+    {
+        type="range",
+        value="HIGH"
+    }
 )
 
 addButton(
@@ -1058,7 +1713,10 @@ addButton(
     12,55,23,57,
     "1-12",
     colors.gray,
-    {type="dozen",value=1}
+    {
+        type="dozen",
+        value=1
+    }
 )
 
 addButton(
@@ -1066,7 +1724,10 @@ addButton(
     25,55,36,57,
     "13-24",
     colors.gray,
-    {type="dozen",value=2}
+    {
+        type="dozen",
+        value=2
+    }
 )
 
 addButton(
@@ -1074,7 +1735,10 @@ addButton(
     38,55,50,57,
     "25-36",
     colors.gray,
-    {type="dozen",value=3}
+    {
+        type="dozen",
+        value=3
+    }
 )
 
 -- ============================================================
@@ -1137,20 +1801,26 @@ addButton(
 local function drawControls()
 
     local outside = {
+
         "red",
         "black",
+
         "odd",
         "even",
+
         "low",
         "high",
+
         "d1",
         "d2",
         "d3"
     }
 
-    for _, name in ipairs(
-        outside
-    ) do
+    for _, name
+        in ipairs(
+            outside
+        )
+    do
 
         local button =
             buttons[name]
@@ -1163,13 +1833,40 @@ local function drawControls()
         )
     end
 
-    drawButton(buttons.deposit, false)
-    drawButton(buttons.cashout, false)
-    drawButton(buttons.clear, false)
-    drawButton(buttons.betDown, false)
-    drawButton(buttons.betUp, false)
-    drawButton(buttons.allin, false)
-    drawButton(buttons.spin, false)
+    drawButton(
+        buttons.deposit,
+        false
+    )
+
+    drawButton(
+        buttons.cashout,
+        false
+    )
+
+    drawButton(
+        buttons.clear,
+        false
+    )
+
+    drawButton(
+        buttons.betDown,
+        false
+    )
+
+    drawButton(
+        buttons.betUp,
+        false
+    )
+
+    drawButton(
+        buttons.allin,
+        false
+    )
+
+    drawButton(
+        buttons.spin,
+        false
+    )
 end
 
 -- ============================================================
@@ -1229,10 +1926,15 @@ local function draw()
     clear()
 
     drawHeader()
+
     drawWheel()
+
     drawSummary()
+
     drawNumberGrid()
+
     drawControls()
+
     drawMessage()
 end
 
@@ -1243,12 +1945,14 @@ end
 local function drawSpinFrame()
 
     drawHeader()
+
     drawWheel()
+
     drawSummary()
 end
 
 -- ============================================================
--- PAYOUT LOGIC
+-- PAYOUT FOR ONE BET
 -- ============================================================
 
 local function payoutForBet(
@@ -1262,19 +1966,37 @@ local function payoutForBet(
     local v =
         bet.value
 
+    --------------------------------------------------
+    -- NUMBER
+    --------------------------------------------------
+
     if t == "number" then
 
         if n == v then
+
             return
-                betAmount * 36
+                betAmount
+                * 36
         end
+
+    --------------------------------------------------
+    -- COLOR
+    --------------------------------------------------
 
     elseif t == "color" then
 
-        if numberColorName(n) == v then
+        if numberColorName(n)
+            == v
+        then
+
             return
-                betAmount * 2
+                betAmount
+                * 2
         end
+
+    --------------------------------------------------
+    -- ODD / EVEN
+    --------------------------------------------------
 
     elseif t == "parity" then
 
@@ -1283,17 +2005,25 @@ local function payoutForBet(
             if v == "ODD"
                 and n % 2 == 1
             then
+
                 return
-                    betAmount * 2
+                    betAmount
+                    * 2
             end
 
             if v == "EVEN"
                 and n % 2 == 0
             then
+
                 return
-                    betAmount * 2
+                    betAmount
+                    * 2
             end
         end
+
+    --------------------------------------------------
+    -- 1-18 / 19-36
+    --------------------------------------------------
 
     elseif t == "range" then
 
@@ -1301,31 +2031,44 @@ local function payoutForBet(
             and n >= 1
             and n <= 18
         then
+
             return
-                betAmount * 2
+                betAmount
+                * 2
         end
 
         if v == "HIGH"
             and n >= 19
             and n <= 36
         then
+
             return
-                betAmount * 2
+                betAmount
+                * 2
         end
+
+    --------------------------------------------------
+    -- DOZENS
+    --------------------------------------------------
 
     elseif t == "dozen" then
 
         local minimum =
-            (v - 1) * 12 + 1
+            (v - 1)
+            * 12
+            + 1
 
         local maximum =
-            v * 12
+            v
+            * 12
 
         if n >= minimum
             and n <= maximum
         then
+
             return
-                betAmount * 3
+                betAmount
+                * 3
         end
     end
 
@@ -1336,9 +2079,9 @@ local function calculatePayout(n)
 
     local payout = 0
 
-    for _, bet in pairs(
-        bets
-    ) do
+    for _, bet
+        in pairs(bets)
+    do
 
         payout =
             payout
@@ -1353,7 +2096,13 @@ end
 
 -- ============================================================
 -- SPIN
--- VISIBLE BALL POSITION = WINNER
+--
+-- IMPORTANT:
+-- NO HIDDEN WINNER IS CHOSEN.
+--
+-- The wheel and ball move.
+-- When the ball stops, the number physically underneath the
+-- visible ball position becomes the actual result.
 -- ============================================================
 
 local function spin()
@@ -1365,14 +2114,23 @@ local function spin()
     local stake =
         totalStake()
 
+    --------------------------------------------------
+    -- VALIDATE BETS
+    --------------------------------------------------
+
     if stake <= 0 then
 
         message =
             "SELECT AT LEAST ONE BET"
 
         draw()
+
         return
     end
+
+    --------------------------------------------------
+    -- VALIDATE BALANCE
+    --------------------------------------------------
 
     if credits < stake then
 
@@ -1380,8 +2138,13 @@ local function spin()
             "NOT ENOUGH CREDITS"
 
         draw()
+
         return
     end
+
+    --------------------------------------------------
+    -- TAKE STAKE
+    --------------------------------------------------
 
     credits =
         credits - stake
@@ -1402,7 +2165,6 @@ local function spin()
 
     --------------------------------------------------
     -- RANDOMIZE MOTION ONLY
-    -- NOT THE WINNING NUMBER
     --------------------------------------------------
 
     local wheelSteps =
@@ -1437,7 +2199,9 @@ local function spin()
 
         drawSpinFrame()
 
-        sleep(0.035)
+        sleep(
+            0.035
+        )
     end
 
     --------------------------------------------------
@@ -1499,7 +2263,7 @@ local function spin()
     end
 
     --------------------------------------------------
-    -- BALL CONTINUES AFTER WHEEL SLOWS
+    -- BALL CONTINUES
     --------------------------------------------------
 
     local remainingBall =
@@ -1519,7 +2283,8 @@ local function spin()
         drawSpinFrame()
 
         local progress =
-            i / remainingBall
+            i
+            / remainingBall
 
         local delay =
             0.07
@@ -1527,11 +2292,13 @@ local function spin()
             * progress
             * 0.28
 
-        sleep(delay)
+        sleep(
+            delay
+        )
     end
 
     --------------------------------------------------
-    -- SMALL BOUNCES
+    -- SMALL BALL BOUNCES
     --------------------------------------------------
 
     for i = 1, 4 do
@@ -1560,10 +2327,12 @@ local function spin()
 
     drawSpinFrame()
 
-    sleep(0.35)
+    sleep(
+        0.35
+    )
 
     --------------------------------------------------
-    -- VISIBLE BALL POCKET DETERMINES RESULT
+    -- DETERMINE VISIBLE WINNING POCKET
     --------------------------------------------------
 
     local visiblePosition =
@@ -1582,10 +2351,20 @@ local function spin()
         resultIndex
 
     resultNumber =
-        wheel[resultIndex]
+        wheel[
+            resultIndex
+        ]
 
     --------------------------------------------------
-    -- PAYOUT USING THAT EXACT VISIBLE NUMBER
+    -- ADD TO SEPARATE HISTORY MONITOR
+    --------------------------------------------------
+
+    addHistory(
+        resultNumber
+    )
+
+    --------------------------------------------------
+    -- CALCULATE PAYOUT USING EXACT VISIBLE RESULT
     --------------------------------------------------
 
     local payout =
@@ -1594,10 +2373,15 @@ local function spin()
         )
 
     credits =
-        credits + payout
+        credits
+        + payout
 
     spinning =
         false
+
+    --------------------------------------------------
+    -- RESULT MESSAGE
+    --------------------------------------------------
 
     if payout > 0 then
 
@@ -1613,6 +2397,10 @@ local function spin()
             .. stake
             .. " CR"
     end
+
+    --------------------------------------------------
+    -- FINAL MAIN SCREEN DRAW
+    --------------------------------------------------
 
     draw()
 end
@@ -1665,15 +2453,24 @@ end
 -- TOUCH HANDLER
 -- ============================================================
 
-local function handleTouch(x, y)
+local function handleTouch(
+    x,
+    y
+)
 
     if spinning then
         return
     end
 
-    for _, cell in ipairs(
-        numberCells
-    ) do
+    --------------------------------------------------
+    -- NUMBER BETS
+    --------------------------------------------------
+
+    for _, cell
+        in ipairs(
+            numberCells
+        )
+    do
 
         if x >= cell.x1
             and x <= cell.x2
@@ -1683,8 +2480,11 @@ local function handleTouch(x, y)
 
             toggleBet(
                 {
-                    type = "number",
-                    value = cell.number
+                    type =
+                        "number",
+
+                    value =
+                        cell.number
                 }
             )
 
@@ -1694,15 +2494,20 @@ local function handleTouch(x, y)
         end
     end
 
-    for name, button in pairs(
-        buttons
-    ) do
+    --------------------------------------------------
+    -- BUTTONS
+    --------------------------------------------------
+
+    for name, button
+        in pairs(buttons)
+    do
 
         if inside(
             button,
             x,
             y
-        ) then
+        )
+        then
 
             if name == "spin" then
 
@@ -1711,16 +2516,19 @@ local function handleTouch(x, y)
             elseif name == "deposit" then
 
                 depositDiamonds()
+
                 draw()
 
             elseif name == "cashout" then
 
                 cashOut()
+
                 draw()
 
             elseif name == "clear" then
 
                 clearBets()
+
                 draw()
 
             elseif name == "betDown" then
@@ -1734,6 +2542,7 @@ local function handleTouch(x, y)
             elseif name == "allin" then
 
                 allIn()
+
                 draw()
 
             elseif button.data then
@@ -1755,29 +2564,76 @@ end
 -- ============================================================
 
 term.clear()
-term.setCursorPos(1, 1)
 
-print("COOK'S ROULETTE V8")
-print("------------------")
+term.setCursorPos(
+    1,
+    1
+)
+
+print(
+    "COOK'S ROULETTE V9"
+)
+
+print(
+    "------------------"
+)
+
 print("")
-print("Diamond Casino Online")
+
+print(
+    "Diamond Casino Online"
+)
+
 print("")
-print("PLAYER: minecraft:chest_0")
-print("HOUSE:  minecraft:chest_1")
+
+print(
+    "MAIN:    monitor_0"
+)
+
+print(
+    "HISTORY: right"
+)
+
 print("")
-print("1 Diamond = 100 CR")
+
+print(
+    "PLAYER: minecraft:chest_0"
+)
+
+print(
+    "HOUSE:  minecraft:chest_1"
+)
+
 print("")
-print("Visible ball position")
-print("determines the winner.")
+
+print(
+    "1 Diamond = 100 CR"
+)
+
 print("")
-print("Cash out before Ctrl+T.")
+
+print(
+    "Visible ball determines result."
+)
+
+print(
+    "History monitor enabled."
+)
+
+print("")
+
+print(
+    "Cash out before Ctrl+T."
+)
 
 -- ============================================================
 -- START
 -- ============================================================
 
 math.randomseed(
-    os.epoch("utc")
+    os.epoch(
+        "utc"
+    )
 )
 
 wheelIndex =
@@ -1794,6 +2650,8 @@ ballIndex =
 
 draw()
 
+drawHistoryMonitor()
+
 while true do
 
     local _, side, x, y =
@@ -1801,8 +2659,15 @@ while true do
             "monitor_touch"
         )
 
-    handleTouch(
-        x,
-        y
-    )
+    --------------------------------------------------
+    -- ONLY MAIN MONITOR SHOULD CONTROL THE GAME
+    --------------------------------------------------
+
+    if side == MONITOR then
+
+        handleTouch(
+            x,
+            y
+        )
+    end
 end
